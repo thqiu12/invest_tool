@@ -654,6 +654,58 @@
       color: var(--muted);
     }
 
+    .serenity-board {
+      display: grid;
+      grid-template-columns: minmax(280px, .82fr) minmax(0, 1.18fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .serenity-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .serenity-card {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 7px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .serenity-card.warn { border-left-color: var(--amber); }
+    .serenity-card.fail { border-left-color: var(--red); }
+    .serenity-card.ok { border-left-color: var(--green); }
+
+    .serenity-card h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .serenity-card p,
+    .serenity-card li {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .serenity-card p {
+      margin: 0;
+    }
+
+    .serenity-card ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .serenity-score {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
     .asset-board {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -1125,6 +1177,8 @@
       .review-grid { grid-template-columns: 1fr; }
       .stress-board { grid-template-columns: 1fr; }
       .stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .serenity-board { grid-template-columns: 1fr; }
+      .serenity-score { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -1141,6 +1195,7 @@
       .decision-board,
       .execution-actions,
       .stress-grid,
+      .serenity-score,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -1385,6 +1440,20 @@
               <div class="notice">压力测试按当前持仓估算，不预测市场。真实价格、汇率、滑点和税费会让结果偏离。</div>
             </div>
             <div class="rebalance-list" id="rebalanceList"></div>
+          </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>Serenity 蒸馏 / 瓶颈研究漏斗</h3>
+            <span class="mini" id="serenityLabel">研究仓，不是跟单</span>
+          </div>
+          <div class="serenity-board">
+            <div class="serenity-stack" id="serenityBudget"></div>
+            <div class="serenity-stack">
+              <div class="serenity-score" id="serenityGates"></div>
+              <div class="serenity-stack" id="serenityHoldings"></div>
+            </div>
           </div>
         </section>
 
@@ -2041,6 +2110,7 @@
       renderExecution(decision);
       renderReview();
       renderStressAndRebalance(decision);
+      renderSerenityLens(decision);
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -2714,6 +2784,107 @@
         </div>
       `).join('') : '<div class="notice">没有识别到 3 倍 ETF 持仓。</div>';
       $('rebalanceList').innerHTML = summaryCard + rows;
+    }
+
+    function buildSerenityLens(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const reserve = decision?.plan?.reserveJpy || total * .12;
+      const spareCash = Math.max(0, cash - reserve);
+      const researchBudget = Math.max(0, Math.min(total * .03, spareCash * .5));
+      const singleTicket = Math.max(0, Math.min(total * .005, researchBudget * .25));
+      const canResearch = researchBudget > 0 && decision?.stateName !== 'reduce';
+      const gates = [
+        ['瓶颈位置', '不是“也受益 AI”，而是下游无法绕开的材料、设备、封装、光电、基板或电力节点。'],
+        ['稀缺性', '产能、认证、专利、客户导入周期让竞争者短期不能复制。'],
+        ['验证证据', '订单、客户、毛利率、产能利用率或财报指引至少有一个硬证据。'],
+        ['机构前夜', '不是社媒已经爆炒后追，而是在机构持仓、研报覆盖、成交量放大前完成研究。'],
+        ['估值错位', '和更大的可比公司相比，收入质量或战略地位没有被定价。'],
+        ['退出计划', '买入前写清楚失效条件： thesis 错、财报证伪、跌破风控线、流动性恶化。']
+      ];
+      const holdings = portfolio.holdings.map(holding => {
+        if (holding.leveraged) {
+          return {
+            symbol: holding.symbol,
+            level: 'fail',
+            title: `${holding.symbol} 不适用 Serenity 框架`,
+            text: 'SOXL/TECL 是杠杆 ETF，不是供应链瓶颈公司。不能因为看好 AI 瓶颈，就用 3 倍 ETF 去替代研究仓。'
+          };
+        }
+        if (holding.tech) {
+          return {
+            symbol: holding.symbol,
+            level: 'warn',
+            title: `${holding.symbol} 只能进入研究清单`,
+            text: '它属于科技/半导体暴露，但还需要单独验证瓶颈位置、客户依赖、估值错位和退出条件。没有通过闸门前，不应加仓。'
+          };
+        }
+        return {
+          symbol: holding.symbol,
+          level: 'ok',
+          title: `${holding.symbol} 与瓶颈框架关系弱`,
+          text: '不是当前 AI 半导体瓶颈研究的核心对象，按普通持仓风险管理即可。'
+        };
+      });
+
+      return {
+        researchBudget,
+        singleTicket,
+        canResearch,
+        gates,
+        holdings,
+        reserve,
+        spareCash
+      };
+    }
+
+    function renderSerenityLens(decision = state.lastDecision) {
+      const lens = buildSerenityLens(decision);
+      $('serenityLabel').textContent = lens.canResearch
+        ? `研究仓上限 ${fmtMoney(lens.researchBudget)}`
+        : '先控风险，暂不新开研究仓';
+      $('serenityBudget').innerHTML = `
+        <div class="serenity-card ${lens.canResearch ? 'ok' : 'warn'}">
+          <h4>蒸馏结论</h4>
+          <p>Serenity 的核心不是追涨，而是寻找 AI 供应链里被低估的 chokepoint。放到你的系统里，只能作为小比例研究仓，不能替代风控。</p>
+        </div>
+        <div class="serenity-card ${lens.canResearch ? 'ok' : 'fail'}">
+          <h4>资金护栏</h4>
+          <ul>
+            <li>研究仓总上限：${fmtMoney(lens.researchBudget)}。</li>
+            <li>单票试错上限：${fmtMoney(lens.singleTicket)}。</li>
+            <li>现金底线：${fmtMoney(lens.reserve)}；当前超额现金：${fmtMoney(lens.spareCash)}。</li>
+          </ul>
+        </div>
+        <div class="serenity-card warn">
+          <h4>禁止复制的部分</h4>
+          <ul>
+            <li>不复制未验证收益率。</li>
+            <li>不追低市值社媒爆炒票。</li>
+            <li>不用 SOXL/TECL 放大 Serenity 逻辑。</li>
+            <li>没有财报或客户证据，不进订单票。</li>
+          </ul>
+        </div>
+      `;
+      $('serenityGates').innerHTML = lens.gates.map((gate, index) => `
+        <div class="serenity-card">
+          <h4>${index + 1}. ${gate[0]}</h4>
+          <p>${gate[1]}</p>
+        </div>
+      `).join('');
+      $('serenityHoldings').innerHTML = lens.holdings.length ? lens.holdings.map(item => `
+        <div class="serenity-card ${item.level}">
+          <h4>${escapeHtml(item.title)}</h4>
+          <p>${escapeHtml(item.text)}</p>
+        </div>
+      `).join('') : `
+        <div class="serenity-card warn">
+          <h4>等待持仓</h4>
+          <p>导入持仓后，系统会判断哪些标的不适合套用 Serenity 框架。</p>
+        </div>
+      `;
     }
 
     function addExecutionTickets() {
