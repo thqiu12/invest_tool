@@ -1023,6 +1023,36 @@
       line-height: 1.45;
     }
 
+    .scenario-table {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .scenario-row {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px 11px;
+      display: grid;
+      grid-template-columns: 72px repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .scenario-row.header {
+      background: #f8f9fa;
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .scenario-row b {
+      color: var(--ink);
+      font-size: 12px;
+    }
+
     .quote-board {
       display: grid;
       grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
@@ -1812,6 +1842,7 @@
                 <h4>减仓后效果</h4>
                 <div class="impact-grid" id="deRiskImpact"></div>
                 <p class="impact-note" id="deRiskNote">等待计算</p>
+                <div class="scenario-table" id="deRiskScenarios"></div>
               </div>
               <div class="control-panel">
                 <h4>资金桶</h4>
@@ -3287,8 +3318,35 @@
       };
     }
 
+    function buildDeRiskScenarios(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const plan = buildRebalancePlan(decision);
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const current = plan.currentLeveraged;
+      const presets = [
+        ['25%', current * .25],
+        ['50%', current * .50],
+        ['75%', current * .75],
+        ['系统', Math.max(0, Math.min(current, plan.reduceNeeded))]
+      ];
+      return presets.map(([name, sellValue]) => {
+        const afterLeveraged = Math.max(0, current - sellValue);
+        return {
+          name,
+          sellValue,
+          afterCash: cash + sellValue,
+          afterLevPct: total ? afterLeveraged / total : 0,
+          afterShock: total ? (afterLeveraged * .30) / total : 0,
+          isTarget: name === '系统'
+        };
+      });
+    }
+
     function renderDeRiskImpact(decision = state.lastDecision) {
       const impact = buildDeRiskImpact(decision);
+      const scenarios = buildDeRiskScenarios(decision);
       $('deRiskImpact').innerHTML = [
         ['释放现金', fmtMoney(impact.sellValue), impact.sellValue > 0 ? 'positive' : ''],
         ['3倍ETF占比', `${fmtPct(impact.beforeLevPct)} -> ${fmtPct(impact.afterLevPct)}`, impact.afterLevPct < impact.beforeLevPct ? 'positive' : ''],
@@ -3303,6 +3361,22 @@
       $('deRiskNote').textContent = impact.hasPlan
         ? `按当前订单票估算，卖出后可下注现金约 ${fmtMoney(impact.afterCash)}；现金底线 ${fmtMoney(impact.reserve)}。执行后仍要重新抓取楽天快照校准。`
         : '当前没有可计算的减仓路径。若行情或持仓更新，系统会重新估算减仓效果。';
+      $('deRiskScenarios').innerHTML = `
+        <div class="scenario-row header">
+          <span>方案</span>
+          <span>释放现金</span>
+          <span>卖后占比</span>
+          <span>30%冲击</span>
+        </div>
+        ${scenarios.map(item => `
+          <div class="scenario-row">
+            <b>${item.name}</b>
+            <span>${fmtMoney(item.sellValue)}</span>
+            <span>${fmtPct(item.afterLevPct)}</span>
+            <span>${fmtPct(item.afterShock)}</span>
+          </div>
+        `).join('')}
+      `;
     }
 
     function makeExecutionTickets(decision, { preview = false } = {}) {
