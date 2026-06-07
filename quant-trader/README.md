@@ -74,3 +74,9 @@ SOXL 修复计算器会显示：
 - 减仓到目标上限、减仓 50%、减仓 75% 后的风险
 
 所有输出只用于研究和记录，不构成投资建议。
+
+## Vercel 部署
+
+仓库根目录包含 `vercel.json`，部署到 Vercel 后根路径 `/` 会打开 `quant-trader/index.html`。
+
+私有持仓文件 `quant-trader/rakuten-holdings.json` 已经被 `.gitignore` 和 `.vercelignore` 排除，不会提交或部署。公开站点不会包含真实账户持仓。

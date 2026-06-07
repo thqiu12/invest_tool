@@ -1,0 +1,14 @@
+{
+  "cleanUrls": true,
+  "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "/",
+      "destination": "/quant-trader/index.html"
+    },
+    {
+      "source": "/index.html",
+      "destination": "/quant-trader/index.html"
+    }
+  ]
+}
