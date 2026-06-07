@@ -527,6 +527,87 @@
       margin-bottom: 7px;
     }
 
+    .stress-board {
+      display: grid;
+      grid-template-columns: minmax(280px, .78fr) minmax(0, 1.22fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .stress-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .stress-card,
+    .rebalance-card {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .stress-card.fail { border-left: 5px solid var(--red); }
+    .stress-card.warn { border-left: 5px solid var(--amber); }
+    .stress-card.pass { border-left: 5px solid var(--green); }
+
+    .stress-card h4,
+    .rebalance-card h4 {
+      margin: 0 0 9px;
+      font-size: 14px;
+    }
+
+    .stress-card strong {
+      display: block;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 21px;
+      margin-bottom: 7px;
+    }
+
+    .stress-card p,
+    .rebalance-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .rebalance-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .rebalance-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .rebalance-card.reduce { border-left: 5px solid var(--red); }
+    .rebalance-card.hold { border-left: 5px solid var(--amber); }
+    .rebalance-card.ok { border-left: 5px solid var(--green); }
+
+    .rebalance-card .mono {
+      display: block;
+      margin-top: 7px;
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .rebalance-chip {
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: #f8f9fa;
+      border: 1px solid #eaedf1;
+      color: var(--muted);
+    }
+
     .asset-board {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -995,6 +1076,8 @@
       .execution-board { grid-template-columns: 1fr; }
       .review-board { grid-template-columns: 1fr; }
       .review-grid { grid-template-columns: 1fr; }
+      .stress-board { grid-template-columns: 1fr; }
+      .stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 680px) {
@@ -1009,6 +1092,7 @@
       .cash-grid,
       .decision-board,
       .execution-actions,
+      .stress-grid,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -1239,6 +1323,20 @@
               <div class="review-list" id="reviewItems"></div>
               <div class="review-history" id="reviewHistory"></div>
             </div>
+          </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>阶段 5 / 压力测试</h3>
+            <span class="mini" id="stressLabel">等待持仓</span>
+          </div>
+          <div class="stress-board">
+            <div>
+              <div class="stress-grid" id="stressGrid"></div>
+              <div class="notice">压力测试按当前持仓估算，不预测市场。真实价格、汇率、滑点和税费会让结果偏离。</div>
+            </div>
+            <div class="rebalance-list" id="rebalanceList"></div>
           </div>
         </section>
 
@@ -1889,6 +1987,7 @@
       renderTradePlan(decision);
       renderExecution(decision);
       renderReview();
+      renderStressAndRebalance(decision);
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -2433,6 +2532,135 @@
           <span class="mono">${item.score} / ${item.status} / ${fmtMoney(item.netRiskDelta)}</span>
         </div>
       `).join('') : '<div class="review-history-row"><span>暂无保存过的复盘</span><span>--</span></div>';
+    }
+
+    function stressMoveForHolding(holding, baseMove) {
+      if (holding.leveraged) return baseMove;
+      if (holding.tech) return baseMove / 3;
+      return baseMove / 5;
+    }
+
+    function buildStressScenarios() {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const fx = account.fx || Number($('repairFx').value) || 145;
+      const scenarios = [
+        { name: '半导体再跌 10%', move: -.10, fxMove: 0, note: '轻度回撤' },
+        { name: '半导体再跌 20%', move: -.20, fxMove: 0, note: '压力回撤' },
+        { name: '半导体再跌 30%', move: -.30, fxMove: 0, note: '极端回撤' },
+        { name: '半导体反弹 10%', move: .10, fxMove: 0, note: '修复反弹' },
+        { name: '美元兑日元 -5%', move: 0, fxMove: -.05, note: `汇率 ${fx.toFixed(2)} → ${(fx * .95).toFixed(2)}` },
+        { name: '股价 -20% 且日元升值', move: -.20, fxMove: -.05, note: '双重压力' }
+      ];
+
+      return scenarios.map(scenario => {
+        const holdingPnl = portfolio.holdings.reduce((sum, holding) => {
+          const stockMove = stressMoveForHolding(holding, scenario.move);
+          const combinedMove = (1 + stockMove) * (1 + scenario.fxMove) - 1;
+          return sum + holding.marketValueJpy * combinedMove;
+        }, 0);
+        const stressedTotal = total + holdingPnl;
+        const cashAfter = cash;
+        const drawdown = total ? holdingPnl / total : 0;
+        const level = drawdown <= -Number($('maxAccountDrawdownPct').value) / 100
+          ? 'fail'
+          : drawdown <= -Number($('maxLossPct').value) / 100
+            ? 'warn'
+            : 'pass';
+        return { ...scenario, holdingPnl, stressedTotal, cashAfter, drawdown, level };
+      });
+    }
+
+    function buildRebalancePlan(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const levLimit = Number($('leveragedPct').value) / 100;
+      const maxLossPct = Number($('maxLossPct').value) / 100;
+      const allowedByPct = total * levLimit;
+      const allowedByShock = total * maxLossPct / .30;
+      const targetLeveraged = Math.max(0, Math.min(allowedByPct, allowedByShock));
+      const currentLeveraged = portfolio.leveraged;
+      const reduceNeeded = Math.max(0, currentLeveraged - targetLeveraged);
+      const leveragedHoldings = portfolio.holdings
+        .filter(holding => holding.leveraged)
+        .sort((a, b) => b.marketValueJpy - a.marketValueJpy);
+      const totalLeveraged = leveragedHoldings.reduce((sum, holding) => sum + holding.marketValueJpy, 0);
+
+      let remaining = reduceNeeded;
+      const rows = leveragedHoldings.map(holding => {
+        const proportional = totalLeveraged ? reduceNeeded * (holding.marketValueJpy / totalLeveraged) : 0;
+        const reduceJpy = Math.min(holding.marketValueJpy, Math.max(0, proportional || remaining));
+        remaining = Math.max(0, remaining - reduceJpy);
+        const valuePerShare = holding.currentPrice * (account.fx || Number($('repairFx').value) || 145);
+        const sellShares = valuePerShare > 0 ? Math.min(holding.quantity, Math.ceil(reduceJpy / valuePerShare)) : 0;
+        const targetValue = Math.max(0, holding.marketValueJpy - sellShares * valuePerShare);
+        const pctAfter = total ? targetValue / total : 0;
+        return {
+          holding,
+          reduceJpy,
+          sellShares,
+          targetValue,
+          pctAfter,
+          action: sellShares > 0 ? 'reduce' : currentLeveraged > targetLeveraged ? 'hold' : 'ok'
+        };
+      });
+
+      return {
+        total,
+        targetLeveraged,
+        currentLeveraged,
+        reduceNeeded,
+        rows,
+        cashFloor: decision?.plan?.reserveJpy || 0,
+        shockAfter: total ? (Math.max(0, currentLeveraged - reduceNeeded) * .30) / total : 0
+      };
+    }
+
+    function renderStressAndRebalance(decision = state.lastDecision) {
+      const portfolio = portfolioSummary();
+      if (!portfolio.holdings.length) {
+        $('stressLabel').textContent = '等待持仓';
+        $('stressGrid').innerHTML = '<div class="notice">导入楽天账户快照或持仓 CSV 后显示压力测试。</div>';
+        $('rebalanceList').innerHTML = '<div class="notice">暂无持仓，不能计算再平衡。</div>';
+        return;
+      }
+
+      const scenarios = buildStressScenarios();
+      const plan = buildRebalancePlan(decision);
+      $('stressLabel').textContent = `3倍ETF目标 ${fmtMoney(plan.targetLeveraged)} · 需降 ${fmtMoney(plan.reduceNeeded)}`;
+      $('stressGrid').innerHTML = scenarios.map(item => `
+        <div class="stress-card ${item.level}">
+          <h4>${item.name}</h4>
+          <strong class="${item.holdingPnl >= 0 ? 'positive' : 'negative'}">${fmtMoney(item.holdingPnl)}</strong>
+          <p>${item.note}</p>
+          <p>账户约 ${fmtMoney(item.stressedTotal)}，冲击 ${fmtPct(item.drawdown)}</p>
+        </div>
+      `).join('');
+
+      const summaryCard = `
+        <div class="rebalance-card ${plan.reduceNeeded > 0 ? 'reduce' : 'ok'}">
+          <div>
+            <h4>再平衡目标</h4>
+            <p>3倍ETF当前 ${fmtMoney(plan.currentLeveraged)}，目标 ${fmtMoney(plan.targetLeveraged)}。</p>
+            <span class="mono">需降低 ${fmtMoney(plan.reduceNeeded)} · 调整后30%冲击约 ${fmtPct(plan.shockAfter)}</span>
+          </div>
+          <span class="rebalance-chip">${plan.reduceNeeded > 0 ? '需要减仓' : '通过'}</span>
+        </div>
+      `;
+      const rows = plan.rows.length ? plan.rows.map(row => `
+        <div class="rebalance-card ${row.action}">
+          <div>
+            <h4>${escapeHtml(row.holding.symbol)} · ${escapeHtml(row.holding.type)}</h4>
+            <p>当前 ${fmtMoney(row.holding.marketValueJpy)}，目标约 ${fmtMoney(row.targetValue)}。</p>
+            <span class="mono">建议卖出 ${Number(row.sellShares || 0).toLocaleString()} 股 · 调整后占总资产 ${fmtPct(row.pctAfter)}</span>
+          </div>
+          <span class="rebalance-chip">${row.sellShares > 0 ? '优先执行' : '观察'}</span>
+        </div>
+      `).join('') : '<div class="notice">没有识别到 3 倍 ETF 持仓。</div>';
+      $('rebalanceList').innerHTML = summaryCard + rows;
     }
 
     function addExecutionTickets() {
