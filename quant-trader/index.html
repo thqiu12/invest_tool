@@ -851,6 +851,55 @@
       gap: 10px;
     }
 
+    .strategy-stack {
+      display: grid;
+      gap: 9px;
+    }
+
+    .strategy-row {
+      border: 1px solid #eaedf1;
+      border-left: 5px solid var(--amber);
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 11px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .strategy-row.ok { border-left-color: var(--green); }
+    .strategy-row.warn { border-left-color: var(--amber); }
+    .strategy-row.fail { border-left-color: var(--red); }
+
+    .strategy-row h5 {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .strategy-row p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .strategy-row b {
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .strategy-final {
+      margin-top: 10px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 11px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
     .quote-board {
       display: grid;
       grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
@@ -1621,6 +1670,11 @@
               <div class="control-panel">
                 <h4>分批路径</h4>
                 <div class="stage-path" id="controlPath"></div>
+              </div>
+              <div class="control-panel">
+                <h4>阶段 12 / 策略栈</h4>
+                <div class="strategy-stack" id="strategyStack"></div>
+                <div class="strategy-final" id="strategyFinal">等待计算</div>
               </div>
               <div class="control-panel">
                 <h4>资金桶</h4>
@@ -3513,6 +3567,82 @@
       return { title, cls, summary, canBuy, mustReduce, maxBuy, maxSell, worst, buckets, path, watch, priorities, review, plan };
     }
 
+    function buildStrategyStack(decision = state.lastDecision) {
+      const result = state.result || { currentSignal: 'hold', lastReason: '等待策略回测' };
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const plan = buildRebalancePlan(decision);
+      const lens = buildSerenityLens(decision);
+      const review = buildReview(decision);
+      const stress = buildStressScenarios();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const reserve = decision?.plan?.reserveJpy || total * .12;
+      const market = $('marketRegime').value;
+      const soxlQuote = state.quotes.SOXL;
+      const soxlStatus = quoteStatus('SOXL', soxlQuote, decision);
+      const worst = stress.reduce((min, item) => item.drawdown < min.drawdown ? item : min, stress[0] || { drawdown: 0, name: '--' });
+      const defenseTriggered = decision?.stateName === 'reduce' || plan.reduceNeeded > 0 || cash < reserve || review.score < 65 || soxlStatus.level === 'fail';
+      const defenseWarn = !defenseTriggered && (market === 'risk_off' || worst.drawdown < -Number($('maxLossPct').value) / 100 || review.score < 75);
+      const trendBullish = market === 'risk_on' && result.currentSignal === 'buy';
+      const trendBearish = market === 'crash' || market === 'risk_off' || result.currentSignal === 'sell' || soxlStatus.level === 'fail';
+      const alphaAllowed = lens.canResearch && review.score >= 75 && !defenseTriggered && !trendBearish;
+
+      const layers = [
+        {
+          name: '防守层',
+          level: defenseTriggered ? 'fail' : defenseWarn ? 'warn' : 'ok',
+          action: defenseTriggered ? '减风险 / 禁买' : defenseWarn ? '只观察' : '通过',
+          text: defenseTriggered
+            ? `需降风险 ${fmtMoney(Math.max(plan.reduceNeeded, decision?.plan?.reduceAmount || 0))}；现金底线 ${fmtMoney(reserve)}，纪律评分 ${review.score}。`
+            : defenseWarn
+              ? `最坏压力 ${worst.name} ${fmtPct(worst.drawdown)}；纪律评分 ${review.score}，先不扩大风险。`
+              : `现金与交易桶未触发硬防守；3倍ETF目标 ${fmtMoney(plan.targetLeveraged)}。`
+        },
+        {
+          name: '趋势层',
+          level: trendBearish ? 'fail' : trendBullish ? 'ok' : 'warn',
+          action: trendBearish ? '不做多' : trendBullish ? '允许跟随' : '等待确认',
+          text: `市场 ${marketLabel(market)}；策略信号 ${result.currentSignal === 'buy' ? '买入' : result.currentSignal === 'sell' ? '卖出' : '观望'}；${result.lastReason || '无最新理由'}。`
+        },
+        {
+          name: 'Alpha 层',
+          level: alphaAllowed ? 'ok' : lens.canResearch && !defenseTriggered ? 'warn' : 'fail',
+          action: alphaAllowed ? '可小仓研究' : lens.canResearch && !defenseTriggered ? '只建观察清单' : '暂停研究仓',
+          text: alphaAllowed
+            ? `研究仓总上限 ${fmtMoney(lens.researchBudget)}，单票上限 ${fmtMoney(lens.singleTicket)}。`
+            : `研究仓不参与救仓；SOXL/TECL 不能替代 Serenity 个股研究。`
+        }
+      ];
+
+      let final = '默认观望：不补 SOXL，不买 SOXS，不扩大 3 倍 ETF。';
+      if (defenseTriggered) {
+        final = '合成建议：防守层压倒一切。今天只允许减风险、补日志、更新行情。';
+      } else if (trendBullish && alphaAllowed) {
+        final = `合成建议：允许 Alpha 研究仓小票试错，最大 ${fmtMoney(Math.min(lens.singleTicket, cash - reserve))}，必须先生成订单票。`;
+      } else if (trendBullish) {
+        final = '合成建议：趋势偏多但 Alpha 或纪律未完全通过，只能观察，不能追 3 倍 ETF。';
+      } else if (trendBearish) {
+        final = '合成建议：趋势层偏空，禁止新增多头；若反弹触发路径，优先减仓。';
+      }
+
+      return { layers, final };
+    }
+
+    function renderStrategyStack(decision = state.lastDecision) {
+      const stack = buildStrategyStack(decision);
+      $('strategyStack').innerHTML = stack.layers.map(layer => `
+        <div class="strategy-row ${layer.level}">
+          <div>
+            <h5>${escapeHtml(layer.name)}</h5>
+            <p>${escapeHtml(layer.text)}</p>
+          </div>
+          <b>${escapeHtml(layer.action)}</b>
+        </div>
+      `).join('');
+      $('strategyFinal').textContent = stack.final;
+    }
+
     function renderMasterControl(decision = state.lastDecision) {
       const control = buildMasterControl(decision);
       $('controlLabel').textContent = `${control.canBuy ? '可小仓' : '禁加仓'} · ${control.mustReduce ? '需减风险' : '无需强制减仓'}`;
@@ -3552,6 +3682,7 @@
         </div>
       `).join('');
       $('priorityList').innerHTML = control.priorities.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+      renderStrategyStack(decision);
     }
 
     function addExecutionTickets() {
