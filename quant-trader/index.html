@@ -1035,7 +1035,7 @@
       background: #fff;
       padding: 10px 11px;
       display: grid;
-      grid-template-columns: 72px repeat(3, minmax(0, 1fr));
+      grid-template-columns: 60px minmax(140px, 1.35fr) repeat(3, minmax(0, 1fr));
       gap: 10px;
       align-items: center;
       font-size: 12px;
@@ -1051,6 +1051,11 @@
     .scenario-row b {
       color: var(--ink);
       font-size: 12px;
+    }
+
+    .scenario-row .orders {
+      color: var(--ink);
+      line-height: 1.4;
     }
 
     .quote-board {
@@ -3325,6 +3330,9 @@
       const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
       const cash = account.cashBuyingPower || 0;
       const current = plan.currentLeveraged;
+      const fx = account.fx || Number($('repairFx').value) || 145;
+      const holdings = portfolio.holdings.filter(holding => holding.leveraged && holding.marketValueJpy > 0);
+      const totalLeveraged = holdings.reduce((sum, holding) => sum + holding.marketValueJpy, 0);
       const presets = [
         ['25%', current * .25],
         ['50%', current * .50],
@@ -3333,12 +3341,19 @@
       ];
       return presets.map(([name, sellValue]) => {
         const afterLeveraged = Math.max(0, current - sellValue);
+        const orders = holdings.map(holding => {
+          const proportional = totalLeveraged ? sellValue * (holding.marketValueJpy / totalLeveraged) : 0;
+          const valuePerShare = holding.currentPrice * fx;
+          const shares = valuePerShare > 0 ? Math.min(holding.quantity, Math.ceil(proportional / valuePerShare)) : 0;
+          return { symbol: holding.symbol, shares };
+        }).filter(order => order.shares > 0);
         return {
           name,
           sellValue,
           afterCash: cash + sellValue,
           afterLevPct: total ? afterLeveraged / total : 0,
           afterShock: total ? (afterLeveraged * .30) / total : 0,
+          orders,
           isTarget: name === '系统'
         };
       });
@@ -3364,6 +3379,7 @@
       $('deRiskScenarios').innerHTML = `
         <div class="scenario-row header">
           <span>方案</span>
+          <span>预计卖出</span>
           <span>释放现金</span>
           <span>卖后占比</span>
           <span>30%冲击</span>
@@ -3371,6 +3387,7 @@
         ${scenarios.map(item => `
           <div class="scenario-row">
             <b>${item.name}</b>
+            <span class="orders">${item.orders.length ? item.orders.map(order => `${order.symbol} ${Number(order.shares).toLocaleString()}股`).join(' / ') : '不卖'}</span>
             <span>${fmtMoney(item.sellValue)}</span>
             <span>${fmtPct(item.afterLevPct)}</span>
             <span>${fmtPct(item.afterShock)}</span>
