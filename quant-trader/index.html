@@ -818,6 +818,17 @@
       text-align: right;
     }
 
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .evidence-grid label {
+      margin: 0;
+    }
+
     .control-grid {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -2035,6 +2046,26 @@
               <label>观察触发价 USD
                 <input id="serenityTriggerPrice" type="number" value="0" min="0" step="0.01">
               </label>
+              <div class="evidence-grid">
+                <label>客户证据 /10
+                  <input id="evidenceCustomer" type="number" value="0" min="0" max="10" step="1">
+                </label>
+                <label>订单证据 /10
+                  <input id="evidenceOrder" type="number" value="0" min="0" max="10" step="1">
+                </label>
+                <label>财报证据 /10
+                  <input id="evidenceFinancial" type="number" value="0" min="0" max="10" step="1">
+                </label>
+                <label>瓶颈证据 /10
+                  <input id="evidenceChokepoint" type="number" value="0" min="0" max="10" step="1">
+                </label>
+                <label>估值证据 /10
+                  <input id="evidenceValuation" type="number" value="0" min="0" max="10" step="1">
+                </label>
+                <label>反方观点 /10
+                  <input id="evidenceBear" type="number" value="0" min="0" max="10" step="1">
+                </label>
+              </div>
               <div class="deep-output" id="serenityOrderTicket"></div>
             </div>
           </div>
@@ -2091,6 +2122,12 @@
               <h4>下单前记录</h4>
               <p>先生成订单票，确认触发价、股数和原因。真实下单仍然需要你自己去楽天操作。</p>
               <textarea class="journal" id="executionNote" placeholder="写下今天为什么执行，什么条件下撤销。"></textarea>
+              <label for="executionTrigger">触发条件</label>
+              <input id="executionTrigger" type="text" value="价格触发 + 风险闸门通过">
+              <label for="executionCancel">撤销条件</label>
+              <input id="executionCancel" type="text" value="行情过期、闸门关闭、滑点超限">
+              <label for="maxSlippagePct">最大允许滑点</label>
+              <input id="maxSlippagePct" type="number" value="0.5" min="0" max="10" step="0.1">
               <div class="execution-actions">
                 <button class="mini-btn" id="generateTickets">生成订单票</button>
                 <button class="mini-btn secondary" id="markTicketsExecuted">标记已执行</button>
@@ -3659,27 +3696,49 @@
       const thesis = $('serenityThesis').value.trim();
       const invalidation = $('serenityInvalidation').value.trim();
       const catalyst = $('serenityCatalyst').value.trim();
+      const evidence = {
+        customer: clamp(Number($('evidenceCustomer').value) || 0, 0, 10),
+        order: clamp(Number($('evidenceOrder').value) || 0, 0, 10),
+        financial: clamp(Number($('evidenceFinancial').value) || 0, 0, 10),
+        chokepoint: clamp(Number($('evidenceChokepoint').value) || 0, 0, 10),
+        valuation: clamp(Number($('evidenceValuation').value) || 0, 0, 10),
+        bear: clamp(Number($('evidenceBear').value) || 0, 0, 10)
+      };
+      const evidenceTotal = Object.values(evidence).reduce((sum, value) => sum + value, 0);
+      const hardEvidenceReady = evidence.customer >= 5 && evidence.order >= 5 && evidence.financial >= 5 && evidence.chokepoint >= 5;
+      const evidenceReady = evidenceTotal >= 42 && hardEvidenceReady;
       const thesisReady = thesis.length >= 30 && invalidation.length >= 20 && catalyst.length >= 8 && triggerPrice > 0;
-      const stage = score >= 85 && thesisReady
+      const stage = score >= 85 && thesisReady && evidenceReady
         ? '订单票候选'
-        : score >= 70
+        : score >= 70 || evidenceTotal >= 30
           ? '观察清单/小仓试错前'
           : '研究不足';
-      const evidenceNeed = score < 70
+      const missingEvidence = [
+        evidence.customer < 5 ? '客户证据' : '',
+        evidence.order < 5 ? '订单证据' : '',
+        evidence.financial < 5 ? '财报证据' : '',
+        evidence.chokepoint < 5 ? '瓶颈证据' : '',
+        evidenceTotal < 42 ? '总证据分 42/60' : ''
+      ].filter(Boolean).join('、');
+      const evidenceNeed = missingEvidence
+        ? `先补：${missingEvidence}`
+        : score < 70
         ? '先补客户、订单、财报三类硬证据'
         : score < 85
           ? '补估值错位和证伪条件，再考虑试错'
           : '等待触发价和风控闸门同时满足';
-      const allowed = score >= 85 && thesisReady && decision?.stateName !== 'reduce' && maxResearchValue > 0;
+      const allowed = score >= 85 && thesisReady && evidenceReady && decision?.stateName !== 'reduce' && maxResearchValue > 0;
       $('serenityOrderTicket').innerHTML = [
         line('候选评分', `${score}/100 · ${researchPermission(score)}`, score >= 85 ? 'positive' : score >= 70 ? '' : 'negative'),
+        line('证据分', `${evidenceTotal}/60`, evidenceReady ? 'positive' : 'negative'),
+        line('硬证据', hardEvidenceReady ? '客户/订单/财报/瓶颈均过线' : '核心证据未过线', hardEvidenceReady ? 'positive' : 'negative'),
         line('研究阶段', stage, stage === '订单票候选' ? 'positive' : stage === '研究不足' ? 'negative' : ''),
         line('thesis 完整度', thesisReady ? '完整' : '不完整', thesisReady ? 'positive' : 'negative'),
         line('订单票权限', allowed ? '允许小仓研究票' : '禁止真实买入', allowed ? 'positive' : 'negative'),
         line('研究仓上限', fmtMoney(maxResearchValue)),
         line('观察触发价', triggerPrice > 0 ? fmtUsd(triggerPrice) : '未设置'),
         line('下一证据要求', evidenceNeed),
-        line('硬性禁止', '不能用 SOXL/TECL 替代个股研究')
+        line('硬性禁止', '低于 42/60 不能进订单票，不能用 SOXL/TECL 替代个股研究')
       ].join('');
     }
 
@@ -3692,6 +3751,9 @@
       const mode = $('executionMode').value;
       const orderType = $('orderType').value;
       const note = $('executionNote').value.trim();
+      const triggerRule = $('executionTrigger').value.trim();
+      const cancelRule = $('executionCancel').value.trim();
+      const maxSlippagePct = clamp(Number($('maxSlippagePct').value) || 0, 0, 10);
       const createdAt = new Date().toISOString();
       const plan = decision.plan;
       const account = accountSummary();
@@ -3708,7 +3770,11 @@
         orderType,
         status: preview ? 'preview' : 'planned',
         decision: decision.title,
-        note
+        note,
+        triggerRule,
+        cancelRule,
+        maxSlippagePct,
+        scenario: state.selectedDeRiskScenario
       };
       const priceFor = (symbol) => {
         if (symbol === 'SOXL') return soxl?.currentPrice || plan.soxlPrice || 0;
@@ -3790,11 +3856,16 @@
           <div>
             <h4>${escapeHtml(ticketTitle(ticket))}</h4>
             <p>${escapeHtml(ticket.reason)}</p>
+            ${ticket.triggerRule ? `<p>触发：${escapeHtml(ticket.triggerRule)}</p>` : ''}
+            ${ticket.cancelRule ? `<p>撤销：${escapeHtml(ticket.cancelRule)}</p>` : ''}
             ${ticket.note ? `<p>记录：${escapeHtml(ticket.note)}</p>` : ''}
             <div class="ticket-meta">
               <span>${ticket.orderType === 'market' ? '市价单' : '限价单'}</span>
+              <span>${ticket.orderType === 'limit' ? '必须限价' : '市价需二次确认'}</span>
               <span>触发价 ${fmtUsd(ticket.triggerPrice)}</span>
               <span>参考价 ${fmtUsd(ticket.referencePrice)}</span>
+              <span>方案 ${escapeHtml(ticket.scenario || '--')}</span>
+              <span>最大滑点 ${Number(ticket.maxSlippagePct || 0).toFixed(2)}%</span>
               <span>估算 ${fmtMoney(ticket.estimatedJpy)}</span>
               <span>${new Date(ticket.createdAt).toLocaleString('ja-JP')}</span>
             </div>
@@ -4919,7 +4990,7 @@
       if (key) selectDeRiskScenario(key);
     });
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'actualSoxlShares', 'actualSoxlPrice', 'actualTeclShares', 'actualTeclPrice', 'taxRatePct', 'fxCostPct', 'settlementDays', 'todayLossJpy', 'lossStreak', 'cooldownLossPct', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'actualSoxlShares', 'actualSoxlPrice', 'actualTeclShares', 'actualTeclPrice', 'taxRatePct', 'fxCostPct', 'settlementDays', 'todayLossJpy', 'lossStreak', 'cooldownLossPct', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear', 'executionTrigger', 'executionCancel', 'maxSlippagePct'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
         else if (state.lastDecision) {
@@ -4930,7 +5001,7 @@
       });
     });
 
-    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice'].forEach(id => {
+    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear'].forEach(id => {
       $(id).addEventListener('input', () => {
         renderCandidateScore();
         if (state.lastDecision) renderDeepModules(state.lastDecision);
