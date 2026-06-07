@@ -851,6 +851,79 @@
       gap: 10px;
     }
 
+    .quote-board {
+      display: grid;
+      grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .quote-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .quote-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+    }
+
+    .quote-card {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--amber);
+      border-radius: 7px;
+      background: #fff;
+      padding: 12px;
+    }
+
+    .quote-card.ok { border-left-color: var(--green); }
+    .quote-card.warn { border-left-color: var(--amber); }
+    .quote-card.fail { border-left-color: var(--red); }
+
+    .quote-card h4 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .quote-card strong {
+      display: block;
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 19px;
+    }
+
+    .quote-card p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .quote-row {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .quote-row + .quote-row {
+      margin-top: 8px;
+    }
+
+    .quote-row span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .quote-row input {
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+      padding: 8px 9px;
+    }
+
     .asset-board {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -1329,7 +1402,9 @@
       .control-kpis,
       .bucket-grid,
       .watch-grid,
-      .stage-path { grid-template-columns: 1fr; }
+      .stage-path,
+      .quote-board { grid-template-columns: 1fr; }
+      .quote-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
 
     @media (max-width: 680px) {
@@ -1352,6 +1427,7 @@
       .bucket-grid,
       .watch-grid,
       .stage-path,
+      .quote-grid,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -1534,6 +1610,25 @@
                 <ul id="priorityList"></ul>
               </div>
             </div>
+          </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>阶段 10 / 行情触发器</h3>
+            <span class="mini" id="quoteLabel">等待行情</span>
+          </div>
+          <div class="quote-board">
+            <div class="execution-panel">
+              <h4>报价刷新</h4>
+              <p>线上会尝试从公开行情源刷新；如果失败，可以手动输入关键价格。报价只用于触发提醒，不会自动下单。</p>
+              <div class="quote-actions">
+                <button class="mini-btn" id="refreshQuotes">刷新行情</button>
+                <button class="mini-btn secondary" id="saveManualQuotes">保存手动报价</button>
+              </div>
+              <div id="manualQuoteInputs"></div>
+            </div>
+            <div class="quote-grid" id="quoteGrid"></div>
           </div>
         </section>
 
@@ -1853,7 +1948,8 @@
       account: null,
       lastDecision: null,
       executionLog: [],
-      reviewLog: []
+      reviewLog: [],
+      quotes: {}
     };
 
     const $ = (id) => document.getElementById(id);
@@ -2324,6 +2420,7 @@
       const decision = buildDecision(r, risk);
       state.lastDecision = decision;
       renderMasterControl(decision);
+      renderQuoteMonitor(decision);
       renderDecision(decision);
       renderTradePlan(decision);
       renderExecution(decision);
@@ -2647,6 +2744,123 @@
         localStorage.setItem('quantGuardReviewLog', JSON.stringify(state.reviewLog));
       } catch (err) {
         console.warn('无法保存复盘日志', err);
+      }
+    }
+
+    function loadQuotes() {
+      try {
+        return JSON.parse(localStorage.getItem('quantGuardQuotes') || '{}');
+      } catch (err) {
+        return {};
+      }
+    }
+
+    function saveQuotes() {
+      try {
+        localStorage.setItem('quantGuardQuotes', JSON.stringify(state.quotes));
+      } catch (err) {
+        console.warn('无法保存行情', err);
+      }
+    }
+
+    function watchedSymbols() {
+      return ['SOXL', 'TECL', 'MRVL', 'QQQ', 'SMH', 'SOXX', 'NVDA', 'USDJPY'];
+    }
+
+    function seedQuotesFromAccount() {
+      const fx = accountSummary().fx || Number($('repairFx').value) || 145;
+      if (!state.quotes.USDJPY) {
+        state.quotes.USDJPY = { symbol: 'USDJPY', price: fx, updatedAt: new Date().toISOString(), source: 'account' };
+      }
+      state.holdings.forEach(holding => {
+        if (holding.currentPrice && !state.quotes[holding.symbol]) {
+          state.quotes[holding.symbol] = {
+            symbol: holding.symbol,
+            price: holding.currentPrice,
+            updatedAt: new Date().toISOString(),
+            source: 'rakuten'
+          };
+        }
+      });
+      saveQuotes();
+    }
+
+    function quoteAgeMinutes(quote) {
+      if (!quote?.updatedAt) return Infinity;
+      return (Date.now() - new Date(quote.updatedAt).getTime()) / 60000;
+    }
+
+    function quoteStatus(symbol, quote, decision = state.lastDecision) {
+      if (!quote?.price) return { level: 'warn', text: '缺报价' };
+      const age = quoteAgeMinutes(quote);
+      if (age > 60 * 30) return { level: 'warn', text: '报价过期' };
+      if (symbol === 'SOXL' && decision?.plan?.trigger) {
+        if (quote.price <= decision.plan.trigger.hardRisk) return { level: 'fail', text: '触发强制防守' };
+        if (quote.price >= decision.plan.trigger.reboundTrim) return { level: 'warn', text: '触发反弹减仓' };
+      }
+      if (symbol === 'TECL' && state.lastDecision?.stateName === 'reduce') return { level: 'warn', text: '等待第二批减仓' };
+      if (symbol === 'USDJPY') return { level: 'ok', text: '汇率更新' };
+      return { level: 'ok', text: '观察' };
+    }
+
+    function renderManualQuoteInputs() {
+      $('manualQuoteInputs').innerHTML = watchedSymbols().map(symbol => {
+        const quote = state.quotes[symbol];
+        return `
+          <div class="quote-row">
+            <span>${symbol}</span>
+            <input id="quoteInput${symbol}" type="number" min="0" step="0.01" value="${quote?.price || ''}" placeholder="price">
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderQuoteMonitor(decision = state.lastDecision) {
+      seedQuotesFromAccount();
+      renderManualQuoteInputs();
+      const quotes = watchedSymbols().map(symbol => {
+        const quote = state.quotes[symbol];
+        const status = quoteStatus(symbol, quote, decision);
+        return { symbol, quote, status };
+      });
+      const staleCount = quotes.filter(item => item.status.text === '报价过期' || item.status.text === '缺报价').length;
+      $('quoteLabel').textContent = staleCount ? `${staleCount} 个报价需更新` : '行情已就绪';
+      $('quoteGrid').innerHTML = quotes.map(item => `
+        <div class="quote-card ${item.status.level}">
+          <h4>${item.symbol}</h4>
+          <strong>${item.quote?.price ? (item.symbol === 'USDJPY' ? item.quote.price.toFixed(2) : fmtUsd(item.quote.price)) : '--'}</strong>
+          <p>${item.status.text}</p>
+          <p>${item.quote?.updatedAt ? `${new Date(item.quote.updatedAt).toLocaleString('ja-JP')} · ${item.quote.source || 'manual'}` : '未更新'}</p>
+        </div>
+      `).join('');
+    }
+
+    function saveManualQuotes() {
+      watchedSymbols().forEach(symbol => {
+        const input = $(`quoteInput${symbol}`);
+        const price = Number(input?.value);
+        if (Number.isFinite(price) && price > 0) {
+          state.quotes[symbol] = { symbol, price, updatedAt: new Date().toISOString(), source: 'manual' };
+        }
+      });
+      saveQuotes();
+      if (state.lastDecision) renderQuoteMonitor(state.lastDecision);
+    }
+
+    async function refreshQuotes() {
+      try {
+        $('quoteLabel').textContent = '刷新中...';
+        const response = await fetch(`/api/quotes?symbols=${watchedSymbols().join(',')}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error('行情 API 暂不可用');
+        const payload = await response.json();
+        (payload.quotes || []).forEach(quote => {
+          if (quote.price) state.quotes[quote.symbol] = quote;
+        });
+        saveQuotes();
+        renderQuoteMonitor(state.lastDecision);
+      } catch (err) {
+        $('quoteLabel').textContent = `刷新失败：${err.message}`;
+        renderQuoteMonitor(state.lastDecision);
       }
     }
 
@@ -3665,6 +3879,7 @@
 
     state.executionLog = loadExecutionLog();
     state.reviewLog = loadReviewLog();
+    state.quotes = loadQuotes();
 
     $('loadSample').addEventListener('click', () => {
       state.data = generateSample();
@@ -3731,6 +3946,8 @@
     $('exportExecutionLog').addEventListener('click', exportExecutionLog);
     $('saveReview').addEventListener('click', saveCurrentReview);
     $('exportReviewLog').addEventListener('click', exportReviewLog);
+    $('refreshQuotes').addEventListener('click', refreshQuotes);
+    $('saveManualQuotes').addEventListener('click', saveManualQuotes);
     $('run').addEventListener('click', run);
     ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
       $(id).addEventListener('change', () => {
