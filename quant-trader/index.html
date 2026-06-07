@@ -842,6 +842,132 @@
       color: var(--green);
     }
 
+    .review-board {
+      display: grid;
+      grid-template-columns: minmax(280px, .7fr) minmax(0, 1.3fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .review-score {
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--green);
+      border-radius: 7px;
+      background: #fff;
+      padding: 16px;
+      min-height: 210px;
+    }
+
+    .review-score.warn { border-left-color: var(--amber); }
+    .review-score.fail { border-left-color: var(--red); }
+
+    .review-score span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .review-score strong {
+      display: block;
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 48px;
+      line-height: 1;
+    }
+
+    .review-score p {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .review-metric {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      padding: 11px;
+      background: #f8f9fa;
+    }
+
+    .review-metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .review-metric b {
+      display: block;
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 16px;
+    }
+
+    .review-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .review-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      font-size: 13px;
+      line-height: 1.48;
+    }
+
+    .review-dot {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: #e9f5ee;
+      color: var(--green);
+      font-weight: 800;
+      font-size: 12px;
+    }
+
+    .review-item.warn .review-dot {
+      background: #fff4df;
+      color: var(--amber);
+    }
+
+    .review-item.fail .review-dot {
+      background: #fdecef;
+      color: var(--red);
+    }
+
+    .review-history {
+      margin-top: 12px;
+      border-top: 1px solid #eaedf1;
+      padding-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .review-history-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -867,6 +993,8 @@
       .decision-board { grid-template-columns: 1fr; }
       .plan-grid { grid-template-columns: 1fr; }
       .execution-board { grid-template-columns: 1fr; }
+      .review-board { grid-template-columns: 1fr; }
+      .review-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -1080,6 +1208,42 @@
 
         <section class="band full-row">
           <div class="band-head">
+            <h3>阶段 4 / 交易复盘</h3>
+            <span class="mini" id="reviewLabel">等待执行日志</span>
+          </div>
+          <div class="review-board">
+            <div class="review-score" id="reviewScoreBox">
+              <span>纪律评分</span>
+              <strong id="reviewScore">--</strong>
+              <p id="reviewSummary">生成或标记订单票后，系统会检查是否违反现金、仓位、方向和记录规则。</p>
+              <div class="review-grid">
+                <div class="review-metric">
+                  <span>已执行票数</span>
+                  <b id="reviewExecuted">--</b>
+                </div>
+                <div class="review-metric">
+                  <span>风险变化</span>
+                  <b id="reviewRiskDelta">--</b>
+                </div>
+                <div class="review-metric">
+                  <span>复盘状态</span>
+                  <b id="reviewStatus">--</b>
+                </div>
+              </div>
+              <div class="execution-actions">
+                <button class="mini-btn" id="saveReview">保存复盘</button>
+                <button class="mini-btn secondary" id="exportReviewLog">导出复盘</button>
+              </div>
+            </div>
+            <div>
+              <div class="review-list" id="reviewItems"></div>
+              <div class="review-history" id="reviewHistory"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
             <h3>楽天资产总览</h3>
             <span class="mini" id="accountLabel">等待账户快照</span>
           </div>
@@ -1250,7 +1414,8 @@
       holdings: [],
       account: null,
       lastDecision: null,
-      executionLog: []
+      executionLog: [],
+      reviewLog: []
     };
 
     const $ = (id) => document.getElementById(id);
@@ -1723,6 +1888,7 @@
       renderDecision(decision);
       renderTradePlan(decision);
       renderExecution(decision);
+      renderReview();
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -2027,6 +2193,22 @@
       }
     }
 
+    function loadReviewLog() {
+      try {
+        return JSON.parse(localStorage.getItem('quantGuardReviewLog') || '[]');
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function saveReviewLog() {
+      try {
+        localStorage.setItem('quantGuardReviewLog', JSON.stringify(state.reviewLog));
+      } catch (err) {
+        console.warn('无法保存复盘日志', err);
+      }
+    }
+
     function makeExecutionTickets(decision, { preview = false } = {}) {
       const mode = $('executionMode').value;
       const orderType = $('orderType').value;
@@ -2130,12 +2312,136 @@
       `).join('');
     }
 
+    function buildReview(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const tickets = state.executionLog;
+      const executed = tickets.filter(ticket => ticket.status === 'executed');
+      const planned = tickets.filter(ticket => ticket.status === 'planned');
+      const buys = executed.filter(ticket => ticket.side === 'buy');
+      const sells = executed.filter(ticket => ticket.side === 'sell');
+      const totalSellJpy = sells.reduce((sum, ticket) => sum + (Number(ticket.estimatedJpy) || 0), 0);
+      const totalBuyJpy = buys.reduce((sum, ticket) => sum + (Number(ticket.estimatedJpy) || 0), 0);
+      const netRiskDelta = totalBuyJpy - totalSellJpy;
+      const levLimit = Number($('leveragedPct').value) / 100;
+      const maxLossPct = Number($('maxLossPct').value) / 100;
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const adjustedLeveraged = Math.max(0, portfolio.leveraged + netRiskDelta);
+      const levPct = total ? adjustedLeveraged / total : 0;
+      const rawLevPct = total ? portfolio.leveraged / total : 0;
+      const accountShockPct = total ? (adjustedLeveraged * .30) / total : 0;
+      const reserve = decision?.plan?.reserveJpy || 0;
+      const violations = [];
+      const positives = [];
+      let score = 100;
+
+      if (!tickets.length) {
+        score -= 10;
+        violations.push({ level: 'warn', text: '还没有生成订单票。今天如果要交易，必须先写票再操作。' });
+      }
+      if (planned.length) {
+        score -= Math.min(20, planned.length * 8);
+        violations.push({ level: 'warn', text: `${planned.length} 张订单票仍是计划中。收盘后要标记执行或撤销，避免日志失真。` });
+      }
+      if (executed.length && tickets.some(ticket => !String(ticket.note || '').trim())) {
+        score -= 12;
+        violations.push({ level: 'warn', text: '有订单票没有交易理由。没有理由的交易，复盘时默认按纪律扣分。' });
+      }
+      if (decision?.stateName === 'reduce' && buys.length) {
+        score -= 30;
+        violations.push({ level: 'fail', text: '系统处于“优先减风险”，但日志里出现买入票。这是方向性违规。' });
+      }
+      if (decision?.stateName !== 'allow' && buys.length) {
+        score -= 18;
+        violations.push({ level: 'fail', text: '当前不是“允许小仓分批”状态，却执行了买入。下一次应先切换市场假设并重新计算。' });
+      }
+      if (account.cashBuyingPower && reserve && account.cashBuyingPower < reserve) {
+        score -= 16;
+        violations.push({ level: 'warn', text: `可下注现金低于现金底线 ${fmtMoney(reserve)}，任何新增买入都应暂停。` });
+      }
+      if (levPct > levLimit) {
+        score -= 18;
+        violations.push({ level: 'fail', text: `3倍ETF占比 ${fmtPct(levPct)} 高于上限 ${fmtPct(levLimit)}，下一步仍应优先降风险。` });
+      }
+      if (accountShockPct > maxLossPct) {
+        score -= 14;
+        violations.push({ level: 'warn', text: `3倍ETF再跌30%的冲击约为总资产 ${fmtPct(accountShockPct)}，高于单笔亏损容忍 ${fmtPct(maxLossPct)}。` });
+      }
+
+      if (sells.length && decision?.stateName === 'reduce') {
+        positives.push({ level: 'pass', text: `已执行 ${sells.length} 张卖出票，估算降低风险 ${fmtMoney(totalSellJpy)}。` });
+        positives.push({ level: 'pass', text: `按订单票预估，3倍ETF占比会从 ${fmtPct(rawLevPct)} 降到 ${fmtPct(levPct)}。执行后请重新抓取楽天快照校准。` });
+      }
+      if (!buys.length && decision?.stateName !== 'allow') {
+        positives.push({ level: 'pass', text: '没有在非进攻状态下新增买入，符合纪律。' });
+      }
+      if (tickets.length && tickets.every(ticket => String(ticket.note || '').trim())) {
+        positives.push({ level: 'pass', text: '所有订单票都有交易理由，后续复盘可追踪。' });
+      }
+
+      score = clamp(Math.round(score), 0, 100);
+      const status = score >= 85 ? '合格' : score >= 65 ? '警戒' : '失控';
+      const summary = score >= 85
+        ? '今天的操作基本遵守系统纪律。继续保持先写票、再下单、收盘复盘。'
+        : score >= 65
+          ? '今天有可控偏离。先补齐日志，不要扩大仓位，下一次交易前重新计算。'
+          : '今天纪律风险偏高。建议进入实盘锁定模式，只允许减风险和复盘。';
+
+      return {
+        createdAt: new Date().toISOString(),
+        score,
+        status,
+        summary,
+        executedCount: executed.length,
+        plannedCount: planned.length,
+        netRiskDelta,
+        totalSellJpy,
+        totalBuyJpy,
+        items: [...violations, ...positives].slice(0, 8),
+        decision: decision?.title || '等待决策',
+        market: marketLabel($('marketRegime').value),
+        levPct,
+        rawLevPct,
+        accountShockPct,
+        cash: account.cashBuyingPower
+      };
+    }
+
+    function renderReview() {
+      const review = buildReview();
+      const scoreClass = review.score >= 85 ? 'pass' : review.score >= 65 ? 'warn' : 'fail';
+      $('reviewScoreBox').className = `review-score ${scoreClass === 'pass' ? '' : scoreClass}`;
+      $('reviewScore').textContent = String(review.score);
+      $('reviewSummary').textContent = review.summary;
+      $('reviewExecuted').textContent = String(review.executedCount);
+      $('reviewRiskDelta').textContent = review.netRiskDelta < 0
+        ? `-${fmtMoney(Math.abs(review.netRiskDelta))}`
+        : fmtMoney(review.netRiskDelta);
+      $('reviewRiskDelta').className = review.netRiskDelta <= 0 ? 'positive' : 'negative';
+      $('reviewStatus').textContent = review.status;
+      $('reviewStatus').className = scoreClass === 'fail' ? 'negative' : scoreClass === 'warn' ? '' : 'positive';
+      $('reviewLabel').textContent = `${review.status} · ${review.decision}`;
+      $('reviewItems').innerHTML = review.items.length ? review.items.map(item => `
+        <div class="review-item ${item.level === 'pass' ? '' : item.level}">
+          <span class="review-dot">${item.level === 'pass' ? '✓' : '!'}</span>
+          <div>${escapeHtml(item.text)}</div>
+        </div>
+      `).join('') : '<div class="notice">还没有足够日志。先生成订单票，再复盘。</div>';
+      $('reviewHistory').innerHTML = state.reviewLog.length ? state.reviewLog.slice(0, 6).map(item => `
+        <div class="review-history-row">
+          <span>${new Date(item.createdAt).toLocaleString('ja-JP')}</span>
+          <span class="mono">${item.score} / ${item.status} / ${fmtMoney(item.netRiskDelta)}</span>
+        </div>
+      `).join('') : '<div class="review-history-row"><span>暂无保存过的复盘</span><span>--</span></div>';
+    }
+
     function addExecutionTickets() {
       if (!state.lastDecision) return;
       const tickets = makeExecutionTickets(state.lastDecision);
       state.executionLog = [...tickets, ...state.executionLog].slice(0, 80);
       saveExecutionLog();
       renderExecution();
+      renderReview();
     }
 
     function markExecutionDone() {
@@ -2146,6 +2452,7 @@
       ));
       saveExecutionLog();
       renderExecution();
+      renderReview();
     }
 
     function clearExecutionLog() {
@@ -2154,6 +2461,7 @@
       state.executionLog = [];
       saveExecutionLog();
       renderExecution();
+      renderReview();
     }
 
     function exportExecutionLog() {
@@ -2168,6 +2476,28 @@
       const a = document.createElement('a');
       a.href = url;
       a.download = `quant-guard-execution-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function saveCurrentReview() {
+      const review = buildReview();
+      state.reviewLog = [review, ...state.reviewLog].slice(0, 80);
+      saveReviewLog();
+      renderReview();
+    }
+
+    function exportReviewLog() {
+      const payload = JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        current: buildReview(),
+        history: state.reviewLog
+      }, null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quant-guard-review-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -2513,6 +2843,7 @@
     }
 
     state.executionLog = loadExecutionLog();
+    state.reviewLog = loadReviewLog();
 
     $('loadSample').addEventListener('click', () => {
       state.data = generateSample();
@@ -2577,11 +2908,16 @@
     $('markTicketsExecuted').addEventListener('click', markExecutionDone);
     $('clearExecutionLog').addEventListener('click', clearExecutionLog);
     $('exportExecutionLog').addEventListener('click', exportExecutionLog);
+    $('saveReview').addEventListener('click', saveCurrentReview);
+    $('exportReviewLog').addEventListener('click', exportReviewLog);
     $('run').addEventListener('click', run);
     ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
-        else if (state.lastDecision) renderExecution();
+        else if (state.lastDecision) {
+          renderExecution();
+          renderReview();
+        }
       });
     });
 
