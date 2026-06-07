@@ -706,6 +706,109 @@
       gap: 10px;
     }
 
+    .control-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .control-call {
+      border: 1px solid var(--line);
+      border-left: 7px solid var(--amber);
+      border-radius: 7px;
+      background: #fff;
+      padding: 16px;
+    }
+
+    .control-call.reduce { border-left-color: var(--red); }
+    .control-call.allow { border-left-color: var(--green); }
+    .control-call.hold { border-left-color: var(--amber); }
+
+    .control-call h4 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.1;
+    }
+
+    .control-call p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .control-kpis,
+    .bucket-grid,
+    .watch-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(130px, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .control-kpi,
+    .bucket,
+    .watch-item,
+    .stage-step {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 11px;
+    }
+
+    .control-kpi span,
+    .bucket span,
+    .watch-item span,
+    .stage-step span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .control-kpi b,
+    .bucket b,
+    .watch-item b,
+    .stage-step b {
+      display: block;
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+    }
+
+    .control-stack {
+      display: grid;
+      gap: 10px;
+    }
+
+    .control-panel {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .control-panel h4 {
+      margin: 0 0 9px;
+      font-size: 14px;
+    }
+
+    .control-panel ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .stage-path {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
     .asset-board {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -1179,6 +1282,11 @@
       .stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .serenity-board { grid-template-columns: 1fr; }
       .serenity-score { grid-template-columns: 1fr; }
+      .control-grid { grid-template-columns: 1fr; }
+      .control-kpis,
+      .bucket-grid,
+      .watch-grid,
+      .stage-path { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -1196,6 +1304,10 @@
       .execution-actions,
       .stress-grid,
       .serenity-score,
+      .control-kpis,
+      .bucket-grid,
+      .watch-grid,
+      .stage-path,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -1349,6 +1461,38 @@
       </section>
 
       <div class="workspace">
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>阶段 6-12 / 每日总控</h3>
+            <span class="mini" id="controlLabel">等待计算</span>
+          </div>
+          <div class="control-grid">
+            <div class="control-call hold" id="controlCall">
+              <h4>等待账户快照</h4>
+              <p>加载账户和行情后，系统会把防守层、趋势层和 Alpha 层合成今日动作。</p>
+              <div class="control-kpis" id="controlKpis"></div>
+            </div>
+            <div class="control-stack">
+              <div class="control-panel">
+                <h4>分批路径</h4>
+                <div class="stage-path" id="controlPath"></div>
+              </div>
+              <div class="control-panel">
+                <h4>资金桶</h4>
+                <div class="bucket-grid" id="bucketGrid"></div>
+              </div>
+              <div class="control-panel">
+                <h4>行情观察清单</h4>
+                <div class="watch-grid" id="watchGrid"></div>
+              </div>
+              <div class="control-panel">
+                <h4>策略优先级</h4>
+                <ul id="priorityList"></ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section class="band full-row">
           <div class="band-head">
             <h3>下一步动作</h3>
@@ -2105,6 +2249,7 @@
       renderAccount();
       const decision = buildDecision(r, risk);
       state.lastDecision = decision;
+      renderMasterControl(decision);
       renderDecision(decision);
       renderTradePlan(decision);
       renderExecution(decision);
@@ -2885,6 +3030,93 @@
           <p>导入持仓后，系统会判断哪些标的不适合套用 Serenity 框架。</p>
         </div>
       `;
+    }
+
+    function buildMasterControl(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const plan = buildRebalancePlan(decision);
+      const lens = buildSerenityLens(decision);
+      const review = buildReview(decision);
+      const stress = buildStressScenarios();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const worst = stress.reduce((min, item) => item.holdingPnl < min.holdingPnl ? item : min, stress[0] || { holdingPnl: 0, drawdown: 0, name: '--' });
+      const mustReduce = decision?.stateName === 'reduce' || plan.reduceNeeded > 0 || review.score < 65;
+      const canBuy = decision?.stateName === 'allow' && lens.canResearch && review.score >= 75 && plan.reduceNeeded <= 0;
+      const maxBuy = canBuy ? Math.min(decision.plan.addBudget || 0, lens.singleTicket || 0, cash) : 0;
+      const maxSell = Math.max(plan.reduceNeeded, decision?.plan?.reduceAmount || 0);
+      const title = mustReduce ? '今天优先减风险' : canBuy ? '允许小仓研究' : '今天默认观望';
+      const cls = mustReduce ? 'reduce' : canBuy ? 'allow' : 'hold';
+      const summary = mustReduce
+        ? '防守层触发：先处理 3 倍 ETF、现金底线或纪律风险，不开新研究仓。'
+        : canBuy
+          ? '防守层通过，趋势和研究层允许极小仓试错，但仍必须写订单票。'
+          : '当前没有足够条件买入。保留现金，等待风险下降或趋势确认。';
+      const buckets = [
+        { name: '现金安全桶', value: cash, target: decision?.plan?.reserveJpy || total * .12 },
+        { name: '稳健投资桶', value: (state.account?.assets || []).filter(a => a.label !== '米国株式').reduce((sum, a) => sum + a.valueJpy, 0), target: total * .45 },
+        { name: '成长投资桶', value: Math.max(0, portfolio.tech - portfolio.leveraged), target: total * .25 },
+        { name: '高风险交易桶', value: portfolio.leveraged, target: plan.targetLeveraged },
+        { name: '研究仓桶', value: 0, target: lens.researchBudget }
+      ];
+      const path = [
+        { name: '第一批', text: `反弹触发 ${fmtUsd(decision?.plan?.trigger?.reboundTrim || 0)}`, amount: plan.rows[0]?.sellShares ? `${plan.rows[0].holding.symbol} ${plan.rows[0].sellShares} 股` : '不执行' },
+        { name: '第二批', text: '若仍高于风险上限', amount: plan.rows[1]?.sellShares ? `${plan.rows[1].holding.symbol} ${plan.rows[1].sellShares} 股` : '复查仓位' },
+        { name: '强制线', text: `SOXL 跌破 ${fmtUsd(decision?.plan?.trigger?.hardRisk || 0)}`, amount: '只允许减风险' }
+      ];
+      const watch = ['SOXL', 'TECL', 'MRVL', 'QQQ', 'SMH', 'SOXX', 'NVDA', 'USD/JPY'].map(symbol => ({
+        symbol,
+        note: symbol === 'USD/JPY' ? '汇率压力' : leveragedTickers.has(symbol) ? '交易桶' : techTickers.has(symbol) ? 'AI/半导体' : '市场基准'
+      }));
+      const priorities = [
+        `防守层：${mustReduce ? '已触发，优先执行减风险。' : '未触发硬性减仓。'}`,
+        `趋势层：${decision?.title || '等待计算'}，市场假设为 ${marketLabel($('marketRegime').value)}。`,
+        `Alpha 层：Serenity 研究仓 ${lens.canResearch ? '可研究但小仓' : '暂停'}，单票上限 ${fmtMoney(lens.singleTicket)}。`,
+        `复盘层：纪律评分 ${review.score}，低于 75 时禁止扩大风险。`
+      ];
+      return { title, cls, summary, canBuy, mustReduce, maxBuy, maxSell, worst, buckets, path, watch, priorities, review, plan };
+    }
+
+    function renderMasterControl(decision = state.lastDecision) {
+      const control = buildMasterControl(decision);
+      $('controlLabel').textContent = `${control.canBuy ? '可小仓' : '禁加仓'} · ${control.mustReduce ? '需减风险' : '无需强制减仓'}`;
+      $('controlCall').className = `control-call ${control.cls}`;
+      $('controlCall').querySelector('h4').textContent = control.title;
+      $('controlCall').querySelector('p').textContent = control.summary;
+      $('controlKpis').innerHTML = [
+        ['允许买入', control.canBuy ? '是' : '否'],
+        ['最大可买', fmtMoney(control.maxBuy)],
+        ['应降风险', fmtMoney(control.maxSell)],
+        ['最坏情景', `${control.worst.name} ${fmtPct(control.worst.drawdown)}`],
+        ['纪律评分', String(control.review.score)],
+        ['交易桶目标', fmtMoney(control.plan.targetLeveraged)]
+      ].map(item => `
+        <div class="control-kpi">
+          <span>${item[0]}</span>
+          <b>${item[1]}</b>
+        </div>
+      `).join('');
+      $('controlPath').innerHTML = control.path.map(step => `
+        <div class="stage-step">
+          <span>${step.name} · ${step.text}</span>
+          <b>${step.amount}</b>
+        </div>
+      `).join('');
+      $('bucketGrid').innerHTML = control.buckets.map(bucket => `
+        <div class="bucket">
+          <span>${bucket.name}</span>
+          <b>${fmtMoney(bucket.value)}</b>
+          <span>目标 ${fmtMoney(bucket.target)}</span>
+        </div>
+      `).join('');
+      $('watchGrid').innerHTML = control.watch.map(item => `
+        <div class="watch-item">
+          <span>${item.note}</span>
+          <b>${item.symbol}</b>
+        </div>
+      `).join('');
+      $('priorityList').innerHTML = control.priorities.map(item => `<li>${escapeHtml(item)}</li>`).join('');
     }
 
     function addExecutionTickets() {
