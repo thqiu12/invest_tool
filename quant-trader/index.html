@@ -189,7 +189,7 @@
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(6, minmax(140px, 1fr));
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
       gap: 10px;
       margin: 20px 0 18px;
     }
@@ -227,9 +227,13 @@
       line-height: 1.35;
     }
 
+    .advanced-metric {
+      display: none;
+    }
+
     .workspace {
       display: grid;
-      grid-template-columns: minmax(0, 1.45fr) minmax(340px, .85fr);
+      grid-template-columns: 1fr;
       gap: 18px;
       align-items: start;
     }
@@ -264,6 +268,48 @@
     .band-head .mini {
       color: var(--muted);
       font-size: 12px;
+    }
+
+    .advanced-area {
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      overflow: hidden;
+      box-shadow: var(--shadow);
+    }
+
+    .advanced-area summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 15px 18px;
+      background: #fff;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-weight: 700;
+    }
+
+    .advanced-area summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .advanced-area summary::after {
+      content: '+';
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .advanced-area[open] summary::after {
+      content: '-';
+    }
+
+    .advanced-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(340px, .85fr);
+      gap: 18px;
+      padding: 18px;
+      background: #f2f4f7;
+      border-top: 1px solid var(--line);
     }
 
     .chart-wrap {
@@ -1067,6 +1113,7 @@
       }
       .workspace { grid-template-columns: 1fr; }
       .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .advanced-grid { grid-template-columns: 1fr; }
       .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .repair-grid { grid-template-columns: 1fr; }
       .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1085,6 +1132,7 @@
       .topbar { display: block; }
       .status-pill { display: inline-block; margin-top: 14px; }
       .metrics { grid-template-columns: 1fr; }
+      .advanced-grid { padding: 12px; }
       .grid-two { grid-template-columns: 1fr; }
       .cockpit,
       .scenario-list,
@@ -1206,8 +1254,8 @@
     <main>
       <div class="topbar">
         <div class="title-block">
-          <h2>先让交易系统保护你，再让策略尝试赚钱。</h2>
-          <p>适合 SOXL、TECL、TQQQ 这类高波动标的的第一版工作台：上传价格数据，选择策略，系统给出回测结果、当前信号、仓位建议和风险红线。</p>
+          <h2>今天先看结论，再决定要不要动手。</h2>
+          <p>只保留每天要看的几个问题：下一步动作、风险压力、该减多少、有没有违反纪律。</p>
         </div>
         <div class="status-pill" id="dataStatus">未加载数据</div>
       </div>
@@ -1218,7 +1266,7 @@
           <strong id="mAccountTotal">--</strong>
           <small>来自楽天快照或手动总资金池</small>
         </div>
-        <div class="metric">
+        <div class="metric advanced-metric">
           <span>策略收益</span>
           <strong id="mReturn">--</strong>
           <small>扣除手续费与滑点</small>
@@ -1228,12 +1276,12 @@
           <strong id="mDrawdown">--</strong>
           <small>权益曲线峰值到谷值</small>
         </div>
-        <div class="metric">
+        <div class="metric advanced-metric">
           <span>胜率</span>
           <strong id="mWinRate">--</strong>
           <small>已平仓交易统计</small>
         </div>
-        <div class="metric">
+        <div class="metric advanced-metric">
           <span>交易次数</span>
           <strong id="mTrades">--</strong>
           <small>买入到卖出为一笔</small>
@@ -1369,6 +1417,9 @@
           </div>
         </section>
 
+        <details class="advanced-area full-row">
+          <summary>高级分析 / 回测、规则、持仓明细</summary>
+          <div class="advanced-grid">
         <section class="band">
           <div class="band-head">
             <h3>价格与权益曲线</h3>
@@ -1500,6 +1551,8 @@
             </div>
           </div>
         </section>
+          </div>
+        </details>
       </div>
     </main>
   </div>
