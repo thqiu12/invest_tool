@@ -1808,10 +1808,13 @@
       }
     });
 
-    $('loadAccountSnapshot').addEventListener('click', async () => {
+    async function loadAccountSnapshot({ silent = false } = {}) {
       try {
         const response = await fetch('rakuten-account.json', { cache: 'no-store' });
-        if (!response.ok) throw new Error('没有找到完整账户快照。请先让 Codex 从楽天只读抓取一次。');
+        if (!response.ok) {
+          if (silent) return false;
+          throw new Error('没有找到完整账户快照。请先让 Codex 从楽天只读抓取一次。');
+        }
         const payload = await response.json();
         state.account = normalizeAccount(payload);
         state.holdings = state.account.holdings;
@@ -1819,9 +1822,15 @@
         if (state.account.cash.fx) $('repairFx').value = state.account.cash.fx;
         $('holdingStatus').textContent = `${state.holdings.length} 个持仓 + ${state.account.assets.length} 个资产板块已导入，更新时间 ${state.account.capturedAt}`;
         run();
+        return true;
       } catch (err) {
-        alert(err.message);
+        if (!silent) alert(err.message);
+        return false;
       }
+    }
+
+    $('loadAccountSnapshot').addEventListener('click', async () => {
+      await loadAccountSnapshot();
     });
 
     $('run').addEventListener('click', run);
@@ -1873,6 +1882,7 @@
 
     state.data = generateSample();
     run();
+    loadAccountSnapshot({ silent: true });
   </script>
 </body>
 </html>
