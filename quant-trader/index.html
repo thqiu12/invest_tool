@@ -712,6 +712,136 @@
       border-left: 5px solid var(--green);
     }
 
+    .execution-board {
+      display: grid;
+      grid-template-columns: minmax(280px, .82fr) minmax(0, 1.18fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .execution-panel {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 14px;
+    }
+
+    .execution-panel h4 {
+      margin: 0 0 10px;
+      font-size: 15px;
+    }
+
+    .execution-panel p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 0;
+    }
+
+    .execution-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .mini-btn {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #171a1d;
+      color: #fff;
+      padding: 9px 10px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .mini-btn.secondary {
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .mini-btn.danger {
+      background: #fff;
+      color: var(--red);
+      border-color: #efc3c7;
+    }
+
+    .journal {
+      width: 100%;
+      min-height: 86px;
+      margin-top: 10px;
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+      font-size: 13px;
+    }
+
+    .ticket-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .ticket {
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--amber);
+      border-radius: 7px;
+      background: #fff;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .ticket.sell { border-left-color: var(--red); }
+    .ticket.buy { border-left-color: var(--green); }
+    .ticket.hold { border-left-color: var(--amber); }
+
+    .ticket h4 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .ticket p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .ticket-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .ticket-meta span {
+      border: 1px solid #eaedf1;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: var(--muted);
+      font-size: 12px;
+      background: #f8f9fa;
+    }
+
+    .ticket-status {
+      border-radius: 999px;
+      padding: 5px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+      background: #fff4df;
+      color: var(--amber);
+    }
+
+    .ticket-status.done {
+      background: #e9f5ee;
+      color: var(--green);
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -736,6 +866,7 @@
       .asset-board { grid-template-columns: 1fr; }
       .decision-board { grid-template-columns: 1fr; }
       .plan-grid { grid-template-columns: 1fr; }
+      .execution-board { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -749,6 +880,7 @@
       .action-strip,
       .cash-grid,
       .decision-board,
+      .execution-actions,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -840,6 +972,22 @@
         </select>
       </div>
 
+      <div class="side-section">
+        <h2>执行设置</h2>
+        <label for="executionMode">执行模式</label>
+        <select id="executionMode">
+          <option value="paper">纸上交易</option>
+          <option value="manual">手动下单记录</option>
+          <option value="locked">实盘锁定</option>
+        </select>
+        <label for="orderType">订单类型</label>
+        <select id="orderType">
+          <option value="limit">限价单</option>
+          <option value="market">市价单</option>
+        </select>
+        <p class="hint">阶段 3 只生成订单票和执行日志，不连接券商，也不会自动点击楽天下单按钮。</p>
+      </div>
+
       <p class="hint side-section">这个工具只做研究和风控，不构成投资建议，也不会连接券商或自动下单。</p>
     </aside>
 
@@ -906,6 +1054,28 @@
             <span class="mini" id="planLabel">半自动执行</span>
           </div>
           <div class="plan-grid" id="tradePlan"></div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>执行层 / 订单票</h3>
+            <span class="mini" id="executionLabel">等待决策</span>
+          </div>
+          <div class="execution-board">
+            <div class="execution-panel">
+              <h4>下单前记录</h4>
+              <p>先生成订单票，确认触发价、股数和原因。真实下单仍然需要你自己去楽天操作。</p>
+              <textarea class="journal" id="executionNote" placeholder="写下今天为什么执行，什么条件下撤销。"></textarea>
+              <div class="execution-actions">
+                <button class="mini-btn" id="generateTickets">生成订单票</button>
+                <button class="mini-btn secondary" id="markTicketsExecuted">标记已执行</button>
+                <button class="mini-btn secondary" id="exportExecutionLog">导出日志</button>
+                <button class="mini-btn danger" id="clearExecutionLog">清空日志</button>
+              </div>
+              <div class="notice">锁定模式下不会生成买入/卖出票，只保留观察票。这样可以防止情绪交易。</div>
+            </div>
+            <div class="ticket-list" id="executionTickets"></div>
+          </div>
         </section>
 
         <section class="band full-row">
@@ -1078,10 +1248,19 @@
       result: null,
       view: 'trades',
       holdings: [],
-      account: null
+      account: null,
+      lastDecision: null,
+      executionLog: []
     };
 
     const $ = (id) => document.getElementById(id);
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[ch]));
     const fmtPct = (v) => Number.isFinite(v) ? `${(v * 100).toFixed(2)}%` : '--';
     const fmtMoney = (v, cur = 'JPY') => {
       if (!Number.isFinite(v)) return '--';
@@ -1540,8 +1719,10 @@
 
       renderAccount();
       const decision = buildDecision(r, risk);
+      state.lastDecision = decision;
       renderDecision(decision);
       renderTradePlan(decision);
+      renderExecution(decision);
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -1828,6 +2009,167 @@
           ${card.body}
         </div>
       `).join('');
+    }
+
+    function loadExecutionLog() {
+      try {
+        return JSON.parse(localStorage.getItem('quantGuardExecutionLog') || '[]');
+      } catch (err) {
+        return [];
+      }
+    }
+
+    function saveExecutionLog() {
+      try {
+        localStorage.setItem('quantGuardExecutionLog', JSON.stringify(state.executionLog));
+      } catch (err) {
+        console.warn('无法保存执行日志', err);
+      }
+    }
+
+    function makeExecutionTickets(decision, { preview = false } = {}) {
+      const mode = $('executionMode').value;
+      const orderType = $('orderType').value;
+      const note = $('executionNote').value.trim();
+      const createdAt = new Date().toISOString();
+      const plan = decision.plan;
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const fx = account.fx || Number($('repairFx').value) || 145;
+      const soxl = portfolio.holdings.find(h => h.symbol === 'SOXL');
+      const tecl = portfolio.holdings.find(h => h.symbol === 'TECL');
+      const base = {
+        id: preview ? 'preview' : `QG-${Date.now()}`,
+        createdAt,
+        mode,
+        orderType,
+        status: preview ? 'preview' : 'planned',
+        decision: decision.title,
+        note
+      };
+      const priceFor = (symbol) => {
+        if (symbol === 'SOXL') return soxl?.currentPrice || plan.soxlPrice || 0;
+        if (symbol === 'TECL') return tecl?.currentPrice || 0;
+        return 0;
+      };
+      const ticket = (side, symbol, shares, triggerPrice, reason, index) => {
+        const price = priceFor(symbol);
+        return {
+          ...base,
+          id: preview ? `preview-${index}` : `${base.id}-${index}`,
+          side,
+          symbol,
+          shares,
+          triggerPrice,
+          referencePrice: price,
+          estimatedJpy: shares * price * fx,
+          reason
+        };
+      };
+
+      if (mode === 'locked') {
+        return [ticket('hold', 'SYSTEM', 0, 0, '执行模式已锁定：今天只允许观察，不生成真实买卖票。', 1)];
+      }
+
+      const tickets = [];
+      if (decision.stateName === 'reduce') {
+        if (plan.soxlSellShares > 0) {
+          tickets.push(ticket('sell', 'SOXL', plan.soxlSellShares, plan.trigger.reboundTrim, '反弹减风险，优先降低 3 倍半导体 ETF 暴露。', 1));
+        }
+        if (plan.teclSellShares > 0) {
+          tickets.push(ticket('sell', 'TECL', plan.teclSellShares, 0, 'SOXL 减完仍超出风险预算时，再降低科技 3 倍 ETF 暴露。', 2));
+        }
+      } else if (decision.stateName === 'allow' && plan.addSoxlShares > 0) {
+        tickets.push(ticket('buy', 'SOXL', plan.addSoxlShares, plan.trigger.reentry, '市场与策略同时偏多时，用超额现金小仓试探。', 1));
+      }
+
+      if (!tickets.length) {
+        tickets.push(ticket('hold', 'SYSTEM', 0, 0, '当前没有合格订单：保持现金，不追涨杀跌。', 1));
+      }
+      return tickets;
+    }
+
+    function ticketTitle(ticket) {
+      const action = {
+        buy: '买入',
+        sell: '卖出',
+        hold: '观望'
+      }[ticket.side] || '观察';
+      if (ticket.side === 'hold') return `${action} / ${ticket.symbol}`;
+      return `${action} ${ticket.symbol} ${Number(ticket.shares || 0).toLocaleString()} 股`;
+    }
+
+    function renderExecution(decision = state.lastDecision) {
+      if (!decision) return;
+      const preview = makeExecutionTickets(decision, { preview: true });
+      const tickets = state.executionLog.length ? state.executionLog : preview;
+      const modeText = {
+        paper: '纸上交易',
+        manual: '手动记录',
+        locked: '实盘锁定'
+      }[$('executionMode').value] || '执行辅助';
+      $('executionLabel').textContent = `${modeText} · ${state.executionLog.length ? `${state.executionLog.length} 张日志` : '预览'}`;
+      $('executionTickets').innerHTML = tickets.map(ticket => `
+        <div class="ticket ${ticket.side}">
+          <div>
+            <h4>${escapeHtml(ticketTitle(ticket))}</h4>
+            <p>${escapeHtml(ticket.reason)}</p>
+            ${ticket.note ? `<p>记录：${escapeHtml(ticket.note)}</p>` : ''}
+            <div class="ticket-meta">
+              <span>${ticket.orderType === 'market' ? '市价单' : '限价单'}</span>
+              <span>触发价 ${fmtUsd(ticket.triggerPrice)}</span>
+              <span>参考价 ${fmtUsd(ticket.referencePrice)}</span>
+              <span>估算 ${fmtMoney(ticket.estimatedJpy)}</span>
+              <span>${new Date(ticket.createdAt).toLocaleString('ja-JP')}</span>
+            </div>
+          </div>
+          <span class="ticket-status ${ticket.status === 'executed' ? 'done' : ''}">
+            ${ticket.status === 'preview' ? '预览' : ticket.status === 'executed' ? '已执行' : '计划中'}
+          </span>
+        </div>
+      `).join('');
+    }
+
+    function addExecutionTickets() {
+      if (!state.lastDecision) return;
+      const tickets = makeExecutionTickets(state.lastDecision);
+      state.executionLog = [...tickets, ...state.executionLog].slice(0, 80);
+      saveExecutionLog();
+      renderExecution();
+    }
+
+    function markExecutionDone() {
+      if (!state.executionLog.length) return;
+      const executedAt = new Date().toISOString();
+      state.executionLog = state.executionLog.map(ticket => (
+        ticket.status === 'planned' ? { ...ticket, status: 'executed', executedAt } : ticket
+      ));
+      saveExecutionLog();
+      renderExecution();
+    }
+
+    function clearExecutionLog() {
+      const ok = typeof confirm === 'function' ? confirm('清空本地执行日志？') : true;
+      if (!ok) return;
+      state.executionLog = [];
+      saveExecutionLog();
+      renderExecution();
+    }
+
+    function exportExecutionLog() {
+      const payload = JSON.stringify({
+        exportedAt: new Date().toISOString(),
+        account: accountSummary(),
+        decision: state.lastDecision,
+        tickets: state.executionLog
+      }, null, 2);
+      const blob = new Blob([payload], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quant-guard-execution-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
     }
 
     function fmtUsd(value) {
@@ -2170,6 +2512,8 @@
       }
     }
 
+    state.executionLog = loadExecutionLog();
+
     $('loadSample').addEventListener('click', () => {
       state.data = generateSample();
       run();
@@ -2229,10 +2573,15 @@
       await loadAccountSnapshot();
     });
 
+    $('generateTickets').addEventListener('click', addExecutionTickets);
+    $('markTicketsExecuted').addEventListener('click', markExecutionDone);
+    $('clearExecutionLog').addEventListener('click', clearExecutionLog);
+    $('exportExecutionLog').addEventListener('click', exportExecutionLog);
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
+        else if (state.lastDecision) renderExecution();
       });
     });
 
