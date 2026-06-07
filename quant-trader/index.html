@@ -1365,6 +1365,31 @@
       line-height: 1.35;
     }
 
+    .review-audit {
+      margin-top: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .audit-row {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      padding: 10px 11px;
+      background: #f8f9fa;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .audit-row b {
+      color: var(--ink);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: nowrap;
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -1699,6 +1724,18 @@
                   <span>复盘状态</span>
                   <b id="reviewStatus">--</b>
                 </div>
+                <div class="review-metric">
+                  <span>违规金额</span>
+                  <b id="reviewViolationAmount">--</b>
+                </div>
+                <div class="review-metric">
+                  <span>执行偏差</span>
+                  <b id="reviewExecutionGap">--</b>
+                </div>
+                <div class="review-metric">
+                  <span>情绪交易</span>
+                  <b id="reviewEmotionTrades">--</b>
+                </div>
               </div>
               <div class="execution-actions">
                 <button class="mini-btn" id="saveReview">保存复盘</button>
@@ -1707,6 +1744,7 @@
             </div>
             <div>
               <div class="review-list" id="reviewItems"></div>
+              <div class="review-audit" id="reviewAudit"></div>
               <div class="review-history" id="reviewHistory"></div>
             </div>
           </div>
@@ -2978,6 +3016,15 @@
       const totalSellJpy = sells.reduce((sum, ticket) => sum + (Number(ticket.estimatedJpy) || 0), 0);
       const totalBuyJpy = buys.reduce((sum, ticket) => sum + (Number(ticket.estimatedJpy) || 0), 0);
       const netRiskDelta = totalBuyJpy - totalSellJpy;
+      const recommendedSellJpy = Math.max(0, decision?.plan?.reduceAmount || 0);
+      const recommendedBuyJpy = Math.max(0, decision?.plan?.addBudget || 0);
+      const invalidBuyJpy = decision?.stateName === 'allow' ? Math.max(0, totalBuyJpy - recommendedBuyJpy) : totalBuyJpy;
+      const executionGapJpy = Math.max(0, recommendedSellJpy - totalSellJpy);
+      const hasTradeReason = ticket => String(ticket.reason || ticket.note || '').trim();
+      const noReasonCount = tickets.filter(ticket => !hasTradeReason(ticket)).length;
+      const emotionTrades = noReasonCount + (invalidBuyJpy > 0 ? buys.length : 0);
+      const systemRiskDelta = decision?.stateName === 'reduce' ? -recommendedSellJpy : recommendedBuyJpy;
+      const actualVsSystemGap = netRiskDelta - systemRiskDelta;
       const levLimit = Number($('leveragedPct').value) / 100;
       const maxLossPct = Number($('maxLossPct').value) / 100;
       const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
@@ -2998,9 +3045,17 @@
         score -= Math.min(20, planned.length * 8);
         violations.push({ level: 'warn', text: `${planned.length} 张订单票仍是计划中。收盘后要标记执行或撤销，避免日志失真。` });
       }
-      if (executed.length && tickets.some(ticket => !String(ticket.note || '').trim())) {
+      if (executed.length && tickets.some(ticket => !hasTradeReason(ticket))) {
         score -= 12;
         violations.push({ level: 'warn', text: '有订单票没有交易理由。没有理由的交易，复盘时默认按纪律扣分。' });
+      }
+      if (tickets.length && executionGapJpy > 0 && decision?.stateName === 'reduce') {
+        score -= Math.min(18, Math.ceil(executionGapJpy / Math.max(1, total) * 100));
+        violations.push({ level: 'warn', text: `系统建议减风险 ${fmtMoney(recommendedSellJpy)}，当前仍少执行 ${fmtMoney(executionGapJpy)}。` });
+      }
+      if (invalidBuyJpy > 0) {
+        score -= 20;
+        violations.push({ level: 'fail', text: `存在不符合系统建议的买入金额 ${fmtMoney(invalidBuyJpy)}，计入违规交易金额。` });
       }
       if (decision?.stateName === 'reduce' && buys.length) {
         score -= 30;
@@ -3030,7 +3085,7 @@
       if (!buys.length && decision?.stateName !== 'allow') {
         positives.push({ level: 'pass', text: '没有在非进攻状态下新增买入，符合纪律。' });
       }
-      if (tickets.length && tickets.every(ticket => String(ticket.note || '').trim())) {
+      if (tickets.length && tickets.every(ticket => hasTradeReason(ticket))) {
         positives.push({ level: 'pass', text: '所有订单票都有交易理由，后续复盘可追踪。' });
       }
 
@@ -3052,6 +3107,12 @@
         netRiskDelta,
         totalSellJpy,
         totalBuyJpy,
+        recommendedSellJpy,
+        recommendedBuyJpy,
+        invalidBuyJpy,
+        executionGapJpy,
+        emotionTrades,
+        actualVsSystemGap,
         items: [...violations, ...positives].slice(0, 8),
         decision: decision?.title || '等待决策',
         market: marketLabel($('marketRegime').value),
@@ -3075,6 +3136,12 @@
       $('reviewRiskDelta').className = review.netRiskDelta <= 0 ? 'positive' : 'negative';
       $('reviewStatus').textContent = review.status;
       $('reviewStatus').className = scoreClass === 'fail' ? 'negative' : scoreClass === 'warn' ? '' : 'positive';
+      $('reviewViolationAmount').textContent = fmtMoney(review.invalidBuyJpy);
+      $('reviewViolationAmount').className = review.invalidBuyJpy > 0 ? 'negative' : 'positive';
+      $('reviewExecutionGap').textContent = fmtMoney(review.executionGapJpy);
+      $('reviewExecutionGap').className = review.executionGapJpy > 0 && state.executionLog.length ? 'negative' : 'positive';
+      $('reviewEmotionTrades').textContent = String(review.emotionTrades);
+      $('reviewEmotionTrades').className = review.emotionTrades > 0 ? 'negative' : 'positive';
       $('reviewLabel').textContent = `${review.status} · ${review.decision}`;
       $('reviewItems').innerHTML = review.items.length ? review.items.map(item => `
         <div class="review-item ${item.level === 'pass' ? '' : item.level}">
@@ -3082,6 +3149,23 @@
           <div>${escapeHtml(item.text)}</div>
         </div>
       `).join('') : '<div class="notice">还没有足够日志。先生成订单票，再复盘。</div>';
+      const riskGapClass = review.actualVsSystemGap > 0 ? 'negative' : 'positive';
+      const riskGapText = review.actualVsSystemGap < 0
+        ? `少承担 ${fmtMoney(Math.abs(review.actualVsSystemGap))}`
+        : `多承担 ${fmtMoney(review.actualVsSystemGap)}`;
+      $('reviewAudit').innerHTML = [
+        ['系统建议卖出', fmtMoney(review.recommendedSellJpy), ''],
+        ['实际已卖出', fmtMoney(review.totalSellJpy), review.totalSellJpy >= review.recommendedSellJpy ? 'positive' : ''],
+        ['系统允许买入', fmtMoney(review.recommendedBuyJpy), ''],
+        ['实际已买入', fmtMoney(review.totalBuyJpy), review.invalidBuyJpy > 0 ? 'negative' : ''],
+        ['实际 vs 系统风险差', riskGapText, riskGapClass],
+        ['情绪交易次数', `${review.emotionTrades} 次`, review.emotionTrades > 0 ? 'negative' : 'positive']
+      ].map(([label, value, className]) => `
+        <div class="audit-row">
+          <span>${label}</span>
+          <b class="${className}">${value}</b>
+        </div>
+      `).join('');
       $('reviewHistory').innerHTML = state.reviewLog.length ? state.reviewLog.slice(0, 6).map(item => `
         <div class="review-history-row">
           <span>${new Date(item.createdAt).toLocaleString('ja-JP')}</span>
