@@ -77,6 +77,6 @@ SOXL 修复计算器会显示：
 
 ## Vercel 部署
 
-仓库根目录包含 `vercel.json`，部署到 Vercel 后根路径 `/` 会打开 `quant-trader/index.html`。
+仓库根目录包含 `index.html` 和 `vercel.json`，部署到 Vercel 后根路径 `/` 会跳转到 `quant-trader`。
 
 私有持仓文件 `quant-trader/rakuten-holdings.json` 已经被 `.gitignore` 和 `.vercelignore` 排除，不会提交或部署。公开站点不会包含真实账户持仓。
