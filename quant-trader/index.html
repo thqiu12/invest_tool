@@ -989,6 +989,40 @@
     .next-item.warn { border-left: 5px solid var(--amber); }
     .next-item.ok { border-left: 5px solid var(--green); }
 
+    .impact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      gap: 9px;
+    }
+
+    .impact-tile {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 11px;
+    }
+
+    .impact-tile span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .impact-tile b {
+      display: block;
+      margin-top: 7px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+    }
+
+    .impact-note {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .quote-board {
       display: grid;
       grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
@@ -1773,6 +1807,11 @@
               <div class="control-panel">
                 <h4>下一步清单</h4>
                 <div class="next-list" id="nextActions"></div>
+              </div>
+              <div class="control-panel">
+                <h4>减仓后效果</h4>
+                <div class="impact-grid" id="deRiskImpact"></div>
+                <p class="impact-note" id="deRiskNote">等待计算</p>
               </div>
               <div class="control-panel">
                 <h4>资金桶</h4>
@@ -3213,6 +3252,59 @@
       `).join('');
     }
 
+    function buildDeRiskImpact(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const plan = buildRebalancePlan(decision);
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const reserve = decision?.plan?.reserveJpy || total * .12;
+      const sellValue = plan.rows.reduce((sum, row) => {
+        const valuePerShare = row.holding.currentPrice * (account.fx || Number($('repairFx').value) || 145);
+        return sum + (Number(row.sellShares || 0) * valuePerShare);
+      }, 0);
+      const beforeLeveraged = plan.currentLeveraged;
+      const afterLeveraged = Math.max(0, beforeLeveraged - sellValue);
+      const beforeLevPct = total ? beforeLeveraged / total : 0;
+      const afterLevPct = total ? afterLeveraged / total : 0;
+      const beforeShock = total ? (beforeLeveraged * .30) / total : 0;
+      const afterShock = total ? (afterLeveraged * .30) / total : 0;
+      const afterCash = cash + sellValue;
+      const cashGap = afterCash - reserve;
+      return {
+        sellValue,
+        beforeLeveraged,
+        afterLeveraged,
+        beforeLevPct,
+        afterLevPct,
+        beforeShock,
+        afterShock,
+        cash,
+        afterCash,
+        reserve,
+        cashGap,
+        hasPlan: sellValue > 0 || plan.reduceNeeded > 0
+      };
+    }
+
+    function renderDeRiskImpact(decision = state.lastDecision) {
+      const impact = buildDeRiskImpact(decision);
+      $('deRiskImpact').innerHTML = [
+        ['释放现金', fmtMoney(impact.sellValue), impact.sellValue > 0 ? 'positive' : ''],
+        ['3倍ETF占比', `${fmtPct(impact.beforeLevPct)} -> ${fmtPct(impact.afterLevPct)}`, impact.afterLevPct < impact.beforeLevPct ? 'positive' : ''],
+        ['30%冲击', `${fmtPct(impact.beforeShock)} -> ${fmtPct(impact.afterShock)}`, impact.afterShock < impact.beforeShock ? 'positive' : ''],
+        ['现金余力', fmtMoney(impact.cashGap), impact.cashGap >= 0 ? 'positive' : 'negative']
+      ].map(([label, value, className]) => `
+        <div class="impact-tile">
+          <span>${label}</span>
+          <b class="${className}">${value}</b>
+        </div>
+      `).join('');
+      $('deRiskNote').textContent = impact.hasPlan
+        ? `按当前订单票估算，卖出后可下注现金约 ${fmtMoney(impact.afterCash)}；现金底线 ${fmtMoney(impact.reserve)}。执行后仍要重新抓取楽天快照校准。`
+        : '当前没有可计算的减仓路径。若行情或持仓更新，系统会重新估算减仓效果。';
+    }
+
     function makeExecutionTickets(decision, { preview = false } = {}) {
       const mode = $('executionMode').value;
       const orderType = $('orderType').value;
@@ -3946,6 +4038,7 @@
       renderStrategyStack(decision);
       renderActionGates(decision);
       renderNextActions(decision);
+      renderDeRiskImpact(decision);
     }
 
     function addExecutionTickets() {
