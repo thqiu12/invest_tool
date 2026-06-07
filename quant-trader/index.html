@@ -900,6 +900,51 @@
       line-height: 1.5;
     }
 
+    .gate-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .gate-row {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 10px 11px;
+      display: grid;
+      grid-template-columns: 88px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .gate-row.pass { border-left: 5px solid var(--green); }
+    .gate-row.warn { border-left: 5px solid var(--amber); }
+    .gate-row.block { border-left: 5px solid var(--red); }
+
+    .gate-row strong {
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .gate-row b {
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .gate-summary {
+      margin-top: 10px;
+      border-radius: 7px;
+      padding: 11px;
+      color: #fff;
+      background: var(--amber);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .gate-summary.pass { background: var(--green); }
+    .gate-summary.block { background: var(--red); }
+
     .quote-board {
       display: grid;
       grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
@@ -1675,6 +1720,11 @@
                 <h4>阶段 12 / 策略栈</h4>
                 <div class="strategy-stack" id="strategyStack"></div>
                 <div class="strategy-final" id="strategyFinal">等待计算</div>
+              </div>
+              <div class="control-panel">
+                <h4>动作闸门</h4>
+                <div class="gate-list" id="actionGates"></div>
+                <div class="gate-summary" id="gateSummary">等待计算</div>
               </div>
               <div class="control-panel">
                 <h4>资金桶</h4>
@@ -2956,6 +3006,84 @@
       }
     }
 
+    function buildActionGates(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const plan = buildRebalancePlan(decision);
+      const review = buildReview(decision);
+      const stack = buildStrategyStack(decision);
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const cash = account.cashBuyingPower || 0;
+      const reserve = decision?.plan?.reserveJpy || total * .12;
+      const quoteIssues = watchedSymbols()
+        .filter(symbol => ['SOXL', 'TECL', 'USDJPY'].includes(symbol))
+        .map(symbol => quoteStatus(symbol, state.quotes[symbol], decision))
+        .filter(status => status.text === '缺报价' || status.text === '报价过期' || status.level === 'fail');
+      const defenseLayer = stack.layers.find(layer => layer.name === '防守层');
+      const trendLayer = stack.layers.find(layer => layer.name === '趋势层');
+      const alphaLayer = stack.layers.find(layer => layer.name === 'Alpha 层');
+      const gates = [
+        {
+          name: '防守',
+          state: defenseLayer?.level === 'fail' ? 'block' : defenseLayer?.level === 'warn' ? 'warn' : 'pass',
+          result: defenseLayer?.level === 'fail' ? '阻止买入' : '通过',
+          text: defenseLayer?.text || '等待防守层计算。'
+        },
+        {
+          name: '现金',
+          state: cash >= reserve ? 'pass' : 'block',
+          result: cash >= reserve ? '通过' : '现金不足',
+          text: `可下注现金 ${fmtMoney(cash)}，现金底线 ${fmtMoney(reserve)}。`
+        },
+        {
+          name: '趋势',
+          state: trendLayer?.level === 'ok' ? 'pass' : trendLayer?.level === 'warn' ? 'warn' : 'block',
+          result: trendLayer?.action || '等待确认',
+          text: trendLayer?.text || '等待趋势层计算。'
+        },
+        {
+          name: '纪律',
+          state: review.score >= 75 ? 'pass' : review.score >= 65 ? 'warn' : 'block',
+          result: review.score >= 75 ? '通过' : review.score >= 65 ? '警戒' : '阻止买入',
+          text: `复盘纪律评分 ${review.score}；低于 75 不允许扩大风险。`
+        },
+        {
+          name: '行情',
+          state: quoteIssues.some(item => item.level === 'fail') ? 'block' : quoteIssues.length ? 'warn' : 'pass',
+          result: quoteIssues.length ? '需更新' : '通过',
+          text: quoteIssues.length ? `关键行情有 ${quoteIssues.length} 个问题，先刷新或手动确认。` : 'SOXL/TECL/USDJPY 关键报价可用于触发判断。'
+        },
+        {
+          name: 'Alpha',
+          state: alphaLayer?.level === 'ok' ? 'pass' : alphaLayer?.level === 'warn' ? 'warn' : 'block',
+          result: alphaLayer?.action || '暂停',
+          text: alphaLayer?.text || '等待 Alpha 层计算。'
+        }
+      ];
+      const blocked = gates.filter(gate => gate.state === 'block');
+      const warnings = gates.filter(gate => gate.state === 'warn');
+      const buyOpen = decision?.stateName === 'allow' && !blocked.length && warnings.length <= 1;
+      const summary = buyOpen
+        ? '买入闸门开放：只允许小仓、限价、先写订单票。'
+        : blocked.length
+          ? `买入闸门关闭：${blocked.map(gate => gate.name).join('、')} 未通过。`
+          : '买入闸门半关闭：有警戒项，只能观察或减风险。';
+      return { gates, buyOpen, blocked, warnings, summary };
+    }
+
+    function renderActionGates(decision = state.lastDecision) {
+      const gateSet = buildActionGates(decision);
+      $('actionGates').innerHTML = gateSet.gates.map(gate => `
+        <div class="gate-row ${gate.state}">
+          <strong>${escapeHtml(gate.name)}</strong>
+          <span>${escapeHtml(gate.text)}</span>
+          <b>${escapeHtml(gate.result)}</b>
+        </div>
+      `).join('');
+      $('gateSummary').className = `gate-summary ${gateSet.buyOpen ? 'pass' : gateSet.blocked.length ? 'block' : ''}`;
+      $('gateSummary').textContent = gateSet.summary;
+    }
+
     function makeExecutionTickets(decision, { preview = false } = {}) {
       const mode = $('executionMode').value;
       const orderType = $('orderType').value;
@@ -2967,6 +3095,7 @@
       const fx = account.fx || Number($('repairFx').value) || 145;
       const soxl = portfolio.holdings.find(h => h.symbol === 'SOXL');
       const tecl = portfolio.holdings.find(h => h.symbol === 'TECL');
+      const gates = buildActionGates(decision);
       const base = {
         id: preview ? 'preview' : `QG-${Date.now()}`,
         createdAt,
@@ -3008,8 +3137,11 @@
         if (plan.teclSellShares > 0) {
           tickets.push(ticket('sell', 'TECL', plan.teclSellShares, 0, 'SOXL 减完仍超出风险预算时，再降低科技 3 倍 ETF 暴露。', 2));
         }
-      } else if (decision.stateName === 'allow' && plan.addSoxlShares > 0) {
+      } else if (decision.stateName === 'allow' && gates.buyOpen && plan.addSoxlShares > 0) {
         tickets.push(ticket('buy', 'SOXL', plan.addSoxlShares, plan.trigger.reentry, '市场与策略同时偏多时，用超额现金小仓试探。', 1));
+      } else if (decision.stateName === 'allow' && !gates.buyOpen) {
+        const blocked = gates.blocked.map(gate => gate.name).join('、') || '警戒项';
+        tickets.push(ticket('hold', 'SYSTEM', 0, 0, `买入闸门关闭：${blocked} 未通过。`, 1));
       }
 
       if (!tickets.length) {
@@ -3683,6 +3815,7 @@
       `).join('');
       $('priorityList').innerHTML = control.priorities.map(item => `<li>${escapeHtml(item)}</li>`).join('');
       renderStrategyStack(decision);
+      renderActionGates(decision);
     }
 
     function addExecutionTickets() {
