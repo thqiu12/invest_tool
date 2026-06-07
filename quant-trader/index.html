@@ -706,6 +706,48 @@
       gap: 10px;
     }
 
+    .score-meter {
+      height: 8px;
+      border-radius: 999px;
+      background: #eef1f4;
+      overflow: hidden;
+      margin-top: 9px;
+    }
+
+    .score-fill {
+      height: 100%;
+      width: 0;
+      background: var(--amber);
+    }
+
+    .score-fill.ok { background: var(--green); }
+    .score-fill.fail { background: var(--red); }
+
+    .research-form {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .research-form label {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .research-form input {
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+      margin-top: 5px;
+      padding: 8px 9px;
+    }
+
+    .research-form .wide {
+      grid-column: 1 / -1;
+    }
+
     .control-grid {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -1282,6 +1324,7 @@
       .stress-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .serenity-board { grid-template-columns: 1fr; }
       .serenity-score { grid-template-columns: 1fr; }
+      .research-form { grid-template-columns: 1fr; }
       .control-grid { grid-template-columns: 1fr; }
       .control-kpis,
       .bucket-grid,
@@ -1304,6 +1347,7 @@
       .execution-actions,
       .stress-grid,
       .serenity-score,
+      .research-form,
       .control-kpis,
       .bucket-grid,
       .watch-grid,
@@ -1593,7 +1637,37 @@
             <span class="mini" id="serenityLabel">研究仓，不是跟单</span>
           </div>
           <div class="serenity-board">
-            <div class="serenity-stack" id="serenityBudget"></div>
+            <div class="serenity-stack">
+              <div id="serenityBudget"></div>
+              <div class="serenity-card" id="researchScorer">
+                <h4>候选股 0-100 评分器</h4>
+                <p>先打分，再决定能不能进入研究仓订单票。</p>
+                <div class="research-form">
+                  <label class="wide">代码
+                    <input id="candidateSymbol" type="text" value="MRVL">
+                  </label>
+                  <label>瓶颈程度 /20
+                    <input id="scoreBottleneck" type="number" value="8" min="0" max="20" step="1">
+                  </label>
+                  <label>稀缺性 /20
+                    <input id="scoreScarcity" type="number" value="7" min="0" max="20" step="1">
+                  </label>
+                  <label>财报验证 /20
+                    <input id="scoreFinancials" type="number" value="8" min="0" max="20" step="1">
+                  </label>
+                  <label>客户/订单 /15
+                    <input id="scoreCustomers" type="number" value="5" min="0" max="15" step="1">
+                  </label>
+                  <label>估值错位 /15
+                    <input id="scoreValuation" type="number" value="5" min="0" max="15" step="1">
+                  </label>
+                  <label>流动性风险 /10
+                    <input id="scoreLiquidity" type="number" value="6" min="0" max="10" step="1">
+                  </label>
+                </div>
+                <div id="candidateScore"></div>
+              </div>
+            </div>
             <div class="serenity-stack">
               <div class="serenity-score" id="serenityGates"></div>
               <div class="serenity-stack" id="serenityHoldings"></div>
@@ -2954,21 +3028,29 @@
           return {
             symbol: holding.symbol,
             level: 'fail',
+            score: 0,
+            permission: '禁止买入',
             title: `${holding.symbol} 不适用 Serenity 框架`,
             text: 'SOXL/TECL 是杠杆 ETF，不是供应链瓶颈公司。不能因为看好 AI 瓶颈，就用 3 倍 ETF 去替代研究仓。'
           };
         }
         if (holding.tech) {
+          const score = estimateResearchScore(holding);
           return {
             symbol: holding.symbol,
-            level: 'warn',
+            level: score >= 85 ? 'ok' : score >= 70 ? 'warn' : 'fail',
+            score,
+            permission: researchPermission(score),
             title: `${holding.symbol} 只能进入研究清单`,
             text: '它属于科技/半导体暴露，但还需要单独验证瓶颈位置、客户依赖、估值错位和退出条件。没有通过闸门前，不应加仓。'
           };
         }
+        const score = 35;
         return {
           symbol: holding.symbol,
           level: 'ok',
+          score,
+          permission: researchPermission(score),
           title: `${holding.symbol} 与瓶颈框架关系弱`,
           text: '不是当前 AI 半导体瓶颈研究的核心对象，按普通持仓风险管理即可。'
         };
@@ -2983,6 +3065,58 @@
         reserve,
         spareCash
       };
+    }
+
+    function estimateResearchScore(holding) {
+      if (holding.leveraged) return 0;
+      let score = 0;
+      const symbolBoost = {
+        MRVL: [8, 7, 8, 5, 5, 7],
+        NVDA: [12, 14, 16, 12, 4, 9],
+        AVGO: [13, 13, 15, 11, 5, 8],
+        TSM: [15, 15, 14, 10, 5, 8],
+        AMD: [7, 6, 8, 6, 6, 9],
+        ASML: [17, 18, 16, 11, 5, 8]
+      }[holding.symbol] || (holding.tech ? [7, 6, 6, 4, 5, 7] : [3, 3, 4, 2, 4, 8]);
+      score = symbolBoost.reduce((sum, value) => sum + value, 0);
+      if (holding.pnl < 0) score -= 3;
+      if (holding.marketValueJpy > (Number($('totalWealth').value) * .08)) score -= 5;
+      return clamp(Math.round(score), 0, 100);
+    }
+
+    function researchPermission(score) {
+      if (score >= 85) return '允许进入研究仓订单票';
+      if (score >= 70) return '只能小仓试错';
+      return '不能买入';
+    }
+
+    function researchLevel(score) {
+      if (score >= 85) return 'ok';
+      if (score >= 70) return 'warn';
+      return 'fail';
+    }
+
+    function manualResearchScore() {
+      const parts = [
+        Number($('scoreBottleneck').value),
+        Number($('scoreScarcity').value),
+        Number($('scoreFinancials').value),
+        Number($('scoreCustomers').value),
+        Number($('scoreValuation').value),
+        Number($('scoreLiquidity').value)
+      ].map(value => Number.isFinite(value) ? value : 0);
+      return clamp(parts.reduce((sum, value) => sum + value, 0), 0, 100);
+    }
+
+    function renderCandidateScore() {
+      const score = manualResearchScore();
+      const level = researchLevel(score);
+      const symbol = $('candidateSymbol').value.trim().toUpperCase() || '候选股';
+      $('candidateScore').innerHTML = `
+        <div class="score-meter"><div class="score-fill ${level}" style="width:${score}%"></div></div>
+        <p class="mono" style="margin-top:9px;">${escapeHtml(symbol)} · ${score}/100 · ${researchPermission(score)}</p>
+        <p style="margin-top:6px;">低于 70 分不能买；70-85 只能小仓试错；85 以上才允许进入研究仓订单票。</p>
+      `;
     }
 
     function renderSerenityLens(decision = state.lastDecision) {
@@ -3022,6 +3156,8 @@
       $('serenityHoldings').innerHTML = lens.holdings.length ? lens.holdings.map(item => `
         <div class="serenity-card ${item.level}">
           <h4>${escapeHtml(item.title)}</h4>
+          <div class="score-meter"><div class="score-fill ${item.level}" style="width:${item.score}%"></div></div>
+          <p class="mono" style="margin-top:9px;">研究评分 ${item.score}/100 · ${escapeHtml(item.permission)}</p>
           <p>${escapeHtml(item.text)}</p>
         </div>
       `).join('') : `
@@ -3030,6 +3166,7 @@
           <p>导入持仓后，系统会判断哪些标的不适合套用 Serenity 框架。</p>
         </div>
       `;
+      renderCandidateScore();
     }
 
     function buildMasterControl(decision = state.lastDecision) {
@@ -3595,7 +3732,7 @@
     $('saveReview').addEventListener('click', saveCurrentReview);
     $('exportReviewLog').addEventListener('click', exportReviewLog);
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
         else if (state.lastDecision) {
@@ -3603,6 +3740,10 @@
           renderReview();
         }
       });
+    });
+
+    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
+      $(id).addEventListener('input', renderCandidateScore);
     });
 
     $('csvFile').addEventListener('change', async (event) => {
