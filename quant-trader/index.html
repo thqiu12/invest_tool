@@ -945,6 +945,50 @@
     .gate-summary.pass { background: var(--green); }
     .gate-summary.block { background: var(--red); }
 
+    .next-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .next-item {
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 10px 11px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr);
+      gap: 10px;
+      align-items: start;
+    }
+
+    .next-item b {
+      display: grid;
+      place-items: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      background: var(--ink);
+      color: #fff;
+      font-size: 12px;
+    }
+
+    .next-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .next-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .next-item.urgent { border-left: 5px solid var(--red); }
+    .next-item.warn { border-left: 5px solid var(--amber); }
+    .next-item.ok { border-left: 5px solid var(--green); }
+
     .quote-board {
       display: grid;
       grid-template-columns: minmax(260px, .72fr) minmax(0, 1.28fr);
@@ -1725,6 +1769,10 @@
                 <h4>动作闸门</h4>
                 <div class="gate-list" id="actionGates"></div>
                 <div class="gate-summary" id="gateSummary">等待计算</div>
+              </div>
+              <div class="control-panel">
+                <h4>下一步清单</h4>
+                <div class="next-list" id="nextActions"></div>
               </div>
               <div class="control-panel">
                 <h4>资金桶</h4>
@@ -3084,6 +3132,87 @@
       $('gateSummary').textContent = gateSet.summary;
     }
 
+    function buildNextActions(decision = state.lastDecision) {
+      const plan = buildRebalancePlan(decision);
+      const gates = buildActionGates(decision);
+      const review = buildReview(decision);
+      const quoteProblems = watchedSymbols()
+        .filter(symbol => ['SOXL', 'TECL', 'USDJPY'].includes(symbol))
+        .map(symbol => ({ symbol, status: quoteStatus(symbol, state.quotes[symbol], decision) }))
+        .filter(item => item.status.text === '缺报价' || item.status.text === '报价过期' || item.status.level === 'fail');
+      const actions = [];
+
+      if (plan.reduceNeeded > 0 || decision?.stateName === 'reduce') {
+        const first = plan.rows.find(row => row.sellShares > 0);
+        actions.push({
+          level: 'urgent',
+          title: '先执行减风险路径',
+          text: first
+            ? `优先处理 ${first.holding.symbol}，参考卖出 ${Number(first.sellShares).toLocaleString()} 股；目标是把 3 倍 ETF 降到 ${fmtMoney(plan.targetLeveraged)} 附近。`
+            : `需要降低风险 ${fmtMoney(Math.max(plan.reduceNeeded, decision?.plan?.reduceAmount || 0))}，但当前没有可计算的卖出股数，先更新持仓快照。`
+        });
+      }
+
+      if (quoteProblems.length) {
+        actions.push({
+          level: quoteProblems.some(item => item.status.level === 'fail') ? 'urgent' : 'warn',
+          title: '更新关键行情',
+          text: `${quoteProblems.map(item => item.symbol).join('、')} 需要确认；先点“刷新行情”，失败时手动输入报价。`
+        });
+      }
+
+      if (gates.buyOpen) {
+        actions.push({
+          level: 'ok',
+          title: '允许生成小仓买入票',
+          text: '买入闸门开放，但只允许限价、小仓、先写交易理由；真实下单仍由你手动完成。'
+        });
+      } else {
+        actions.push({
+          level: gates.blocked.length ? 'urgent' : 'warn',
+          title: '不要生成买入票',
+          text: gates.blocked.length
+            ? `${gates.blocked.map(gate => gate.name).join('、')} 未通过。今天只做观察、减风险或复盘。`
+            : '仍有警戒项，买入票保持关闭。'
+        });
+      }
+
+      if (!state.executionLog.length) {
+        actions.push({
+          level: 'warn',
+          title: '交易前先生成订单票',
+          text: '任何操作都先生成订单票，再去楽天手动执行；没有订单票的交易复盘会扣分。'
+        });
+      } else if (state.executionLog.some(ticket => ticket.status === 'planned')) {
+        actions.push({
+          level: 'warn',
+          title: '收盘前更新订单状态',
+          text: '还有计划中的订单票。执行了就标记已执行，没有执行就清空或保留原因，避免日志失真。'
+        });
+      }
+
+      actions.push({
+        level: review.score >= 75 ? 'ok' : 'warn',
+        title: '收盘后保存复盘',
+        text: `当前纪律评分 ${review.score}。保存复盘后，看违规金额、执行偏差和情绪交易次数。`
+      });
+
+      return actions.slice(0, 6);
+    }
+
+    function renderNextActions(decision = state.lastDecision) {
+      const actions = buildNextActions(decision);
+      $('nextActions').innerHTML = actions.map((action, index) => `
+        <div class="next-item ${action.level}">
+          <b>${index + 1}</b>
+          <div>
+            <strong>${escapeHtml(action.title)}</strong>
+            <span>${escapeHtml(action.text)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+
     function makeExecutionTickets(decision, { preview = false } = {}) {
       const mode = $('executionMode').value;
       const orderType = $('orderType').value;
@@ -3816,6 +3945,7 @@
       $('priorityList').innerHTML = control.priorities.map(item => `<li>${escapeHtml(item)}</li>`).join('');
       renderStrategyStack(decision);
       renderActionGates(decision);
+      renderNextActions(decision);
     }
 
     function addExecutionTickets() {
