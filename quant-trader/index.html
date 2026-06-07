@@ -660,6 +660,58 @@
       font-size: 12px;
     }
 
+    .plan-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 10px;
+      padding: 16px;
+    }
+
+    .plan-card {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 13px;
+      background: #fff;
+      min-height: 135px;
+    }
+
+    .plan-card h4 {
+      margin: 0 0 9px;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+
+    .plan-card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .plan-card ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .plan-card li + li {
+      margin-top: 5px;
+    }
+
+    .plan-card.primary {
+      border-left: 5px solid var(--blue);
+    }
+
+    .plan-card.danger {
+      border-left: 5px solid var(--red);
+    }
+
+    .plan-card.ok {
+      border-left: 5px solid var(--green);
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -683,6 +735,7 @@
       .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .asset-board { grid-template-columns: 1fr; }
       .decision-board { grid-template-columns: 1fr; }
+      .plan-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -845,6 +898,14 @@
             </div>
             <div class="decision-list" id="decisionItems"></div>
           </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>今日交易计划</h3>
+            <span class="mini" id="planLabel">半自动执行</span>
+          </div>
+          <div class="plan-grid" id="tradePlan"></div>
         </section>
 
         <section class="band full-row">
@@ -1478,7 +1539,9 @@
       $('mCash').textContent = account.cashBuyingPower ? fmtMoney(account.cashBuyingPower) : fmtMoney(risk.suggested);
 
       renderAccount();
-      renderDecision(r, risk);
+      const decision = buildDecision(r, risk);
+      renderDecision(decision);
+      renderTradePlan(decision);
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -1569,6 +1632,8 @@
       const inputs = getDecisionInputs();
       const account = accountSummary();
       const portfolio = portfolioSummary();
+      const soxl = portfolio.soxl;
+      const tecl = portfolio.holdings.find(h => h.symbol === 'TECL');
       const total = account.totalAssetsJpy || portfolio.total || risk.total;
       const cash = account.cashBuyingPower || 0;
       const cashPct = total ? cash / total : 0;
@@ -1620,6 +1685,22 @@
       const reduceAmount = stateName === 'reduce'
         ? Math.max(excessLeveraged, cashNeeded, accountShockPct > maxSingleLoss ? shockLoss - total * maxSingleLoss : 0)
         : excessLeveraged;
+      const fx = account.fx || Number($('repairFx').value) || 145;
+      const soxlSellShares = soxl?.currentPrice
+        ? Math.min(soxl.quantity, Math.ceil(reduceAmount / (soxl.currentPrice * fx)))
+        : 0;
+      const teclSellShares = tecl?.currentPrice && reduceAmount > (soxlSellShares * (soxl?.currentPrice || 0) * fx)
+        ? Math.min(tecl.quantity, Math.ceil((reduceAmount - soxlSellShares * (soxl?.currentPrice || 0) * fx) / (tecl.currentPrice * fx)))
+        : 0;
+      const addSoxlShares = soxl?.currentPrice && addBudget > 0
+        ? Math.max(0, Math.floor(addBudget / (soxl.currentPrice * fx)))
+        : 0;
+      const soxlPrice = soxl?.currentPrice || Number($('repairPrice').value) || 0;
+      const trigger = {
+        reboundTrim: soxlPrice ? soxlPrice * 1.06 : 0,
+        hardRisk: soxlPrice ? soxlPrice * .92 : 0,
+        reentry: soxlPrice ? soxlPrice * 1.04 : 0
+      };
 
       const items = [];
       if (stateName === 'reduce') {
@@ -1642,7 +1723,23 @@
         title,
         summary,
         items,
-        label: `现金 ${fmtPct(cashPct)} · 3倍ETF ${fmtPct(levPct)} · 科技/半导体 ${fmtPct(techPct)}`
+        label: `现金 ${fmtPct(cashPct)} · 3倍ETF ${fmtPct(levPct)} · 科技/半导体 ${fmtPct(techPct)}`,
+        plan: {
+          total,
+          cash,
+          reduceAmount,
+          addBudget,
+          soxlSellShares,
+          teclSellShares,
+          addSoxlShares,
+          soxlPrice,
+          trigger,
+          levPct,
+          techPct,
+          cashPct,
+          accountShockPct,
+          reserveJpy: total * regimeReserve
+        }
       };
     }
 
@@ -1655,8 +1752,7 @@
       }[regime] || '未知';
     }
 
-    function renderDecision(result, risk) {
-      const decision = buildDecision(result, risk);
+    function renderDecision(decision) {
       const call = $('decisionCall');
       call.className = `decision-call ${decision.stateName}`;
       call.innerHTML = `
@@ -1671,6 +1767,77 @@
           <div>${item}</div>
         </div>
       `).join('');
+    }
+
+    function renderTradePlan(decision) {
+      const plan = decision.plan;
+      const cards = [];
+      if (decision.stateName === 'reduce') {
+        cards.push({
+          cls: 'primary',
+          title: '允许操作',
+          body: `<ul><li>反弹到 SOXL ${fmtUsd(plan.trigger.reboundTrim)} 附近，优先减 ${plan.soxlSellShares.toLocaleString()} 股 SOXL。</li><li>如果 SOXL 减完仍超限，再减 ${plan.teclSellShares.toLocaleString()} 股 TECL。</li><li>目标是释放约 ${fmtMoney(plan.reduceAmount)} 风险仓位。</li></ul>`
+        });
+      } else if (decision.stateName === 'allow') {
+        cards.push({
+          cls: 'ok',
+          title: '允许操作',
+          body: `<ul><li>最多试探 ${fmtMoney(plan.addBudget)}。</li><li>按当前价约等于 SOXL ${plan.addSoxlShares.toLocaleString()} 股以内。</li><li>分 2 到 3 次，不一次买完。</li></ul>`
+        });
+      } else {
+        cards.push({
+          cls: 'primary',
+          title: '允许操作',
+          body: '<ul><li>只允许观察或减仓。</li><li>可以设置反弹减仓提醒。</li><li>不主动扩大半导体/科技杠杆仓。</li></ul>'
+        });
+      }
+
+      cards.push({
+        cls: 'danger',
+        title: '禁止操作',
+        body: '<ul><li>禁止补 SOXL 摊平成本。</li><li>禁止追 SOXS 试图当天赚回来。</li><li>禁止突破现金底线后继续开新仓。</li></ul>'
+      });
+
+      cards.push({
+        cls: 'primary',
+        title: '触发条件',
+        body: `<ul><li>SOXL 反弹到 ${fmtUsd(plan.trigger.reboundTrim)}：执行减仓计划。</li><li>SOXL 跌破 ${fmtUsd(plan.trigger.hardRisk)}：停止加仓，只允许减风险。</li><li>只有市场转强且 3倍ETF低于上限，才考虑重新买入。</li></ul>`
+      });
+
+      cards.push({
+        cls: 'ok',
+        title: '现金规则',
+        body: `<ul><li>现金底线：${fmtMoney(plan.reserveJpy)}。</li><li>当前可下注现金：${fmtMoney(plan.cash)}。</li><li>低于现金底线时，任何买入都要暂停。</li></ul>`
+      });
+
+      cards.push({
+        cls: 'danger',
+        title: '风险检查',
+        body: `<ul><li>3倍ETF占比：${fmtPct(plan.levPct)}。</li><li>科技/半导体占比：${fmtPct(plan.techPct)}。</li><li>3倍ETF再跌30%约影响总资产：${fmtPct(plan.accountShockPct)}。</li></ul>`
+      });
+
+      cards.push({
+        cls: 'primary',
+        title: '下单前复核',
+        body: '<ul><li>写下这笔交易的理由。</li><li>确认卖出/买入股数。</li><li>确认止损或减仓触发价。</li><li>执行后重新抓取楽天快照。</li></ul>'
+      });
+
+      $('tradePlan').innerHTML = cards.map(card => `
+        <div class="plan-card ${card.cls}">
+          <h4>${card.title}</h4>
+          ${card.body}
+        </div>
+      `).join('');
+    }
+
+    function fmtUsd(value) {
+      if (!Number.isFinite(value) || value <= 0) return '--';
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(value);
     }
 
     function renderSignal(result, risk) {
