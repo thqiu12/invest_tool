@@ -597,6 +597,69 @@
       white-space: nowrap;
     }
 
+    .decision-board {
+      display: grid;
+      grid-template-columns: minmax(260px, .75fr) minmax(0, 1.25fr);
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .decision-call {
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--amber);
+      border-radius: 7px;
+      background: #fff;
+      padding: 16px;
+      min-height: 188px;
+    }
+
+    .decision-call.reduce { border-left-color: var(--red); }
+    .decision-call.hold { border-left-color: var(--amber); }
+    .decision-call.allow { border-left-color: var(--green); }
+
+    .decision-call h3 {
+      font-size: 28px;
+      line-height: 1.1;
+      margin-bottom: 10px;
+    }
+
+    .decision-call p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .decision-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .decision-item {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 12px 13px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .decision-rank {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #171a1d;
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -619,6 +682,7 @@
       .repair-grid { grid-template-columns: 1fr; }
       .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .asset-board { grid-template-columns: 1fr; }
+      .decision-board { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -631,6 +695,7 @@
       .scenario-list,
       .action-strip,
       .cash-grid,
+      .decision-board,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -699,6 +764,29 @@
         <button class="btn" id="run">运行回测</button>
       </div>
 
+      <div class="side-section">
+        <h2>目标与市场</h2>
+        <label for="targetReturnPct">目标收益率</label>
+        <input id="targetReturnPct" type="number" value="15" min="-50" max="200" step="1">
+        <label for="targetMonths">目标周期（月）</label>
+        <input id="targetMonths" type="number" value="12" min="1" max="60" step="1">
+        <label for="maxAccountDrawdownPct">账户最大回撤容忍</label>
+        <input id="maxAccountDrawdownPct" type="number" value="10" min="1" max="80" step="1">
+        <label for="marketRegime">市场走向</label>
+        <select id="marketRegime">
+          <option value="risk_off">走弱/风险下降</option>
+          <option value="neutral">震荡/方向不明</option>
+          <option value="risk_on">强势/趋势向上</option>
+          <option value="crash">急跌/恐慌</option>
+        </select>
+        <label for="decisionStyle">决策风格</label>
+        <select id="decisionStyle">
+          <option value="balanced">平衡</option>
+          <option value="conservative">保守</option>
+          <option value="aggressive">进取</option>
+        </select>
+      </div>
+
       <p class="hint side-section">这个工具只做研究和风控，不构成投资建议，也不会连接券商或自动下单。</p>
     </aside>
 
@@ -745,6 +833,20 @@
       </section>
 
       <div class="workspace">
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>下一步动作</h3>
+            <span class="mini" id="decisionLabel">等待账户与市场输入</span>
+          </div>
+          <div class="decision-board">
+            <div class="decision-call hold" id="decisionCall">
+              <h3>等待计算</h3>
+              <p>加载账户快照后，系统会结合持仓、现金、目标收益、市场状态和回撤容忍，给出下一步动作。</p>
+            </div>
+            <div class="decision-list" id="decisionItems"></div>
+          </div>
+        </section>
+
         <section class="band full-row">
           <div class="band-head">
             <h3>楽天资产总览</h3>
@@ -1376,6 +1478,7 @@
       $('mCash').textContent = account.cashBuyingPower ? fmtMoney(account.cashBuyingPower) : fmtMoney(risk.suggested);
 
       renderAccount();
+      renderDecision(r, risk);
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
@@ -1442,6 +1545,132 @@
       }).join('') : '<div class="notice">账户快照里没有资产板块数据。</div>';
 
       drawAccountCurve(account.history || []);
+    }
+
+    function getDecisionInputs() {
+      return {
+        targetReturn: Number($('targetReturnPct').value) / 100,
+        targetMonths: Number($('targetMonths').value),
+        maxAccountDrawdown: Number($('maxAccountDrawdownPct').value) / 100,
+        marketRegime: $('marketRegime').value,
+        style: $('decisionStyle').value
+      };
+    }
+
+    function calcAccountDrawdown(account) {
+      const history = account?.history || [];
+      if (!history.length) return 0;
+      const latest = history[history.length - 1].valueJpy;
+      const peak = Math.max(...history.map(point => point.valueJpy));
+      return latest / peak - 1;
+    }
+
+    function buildDecision(result, risk) {
+      const inputs = getDecisionInputs();
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const total = account.totalAssetsJpy || portfolio.total || risk.total;
+      const cash = account.cashBuyingPower || 0;
+      const cashPct = total ? cash / total : 0;
+      const levPct = total ? portfolio.leveraged / total : 0;
+      const techPct = total ? portfolio.tech / total : 0;
+      const accountDrawdown = calcAccountDrawdown(state.account);
+      const targetValue = total * (1 + inputs.targetReturn * Math.max(1, inputs.targetMonths) / 12);
+      const targetGap = targetValue - total;
+      const levLimit = Number($('leveragedPct').value) / 100;
+      const maxSingleLoss = Number($('maxLossPct').value) / 100;
+      const reserveByStyle = { conservative: .18, balanced: .12, aggressive: .08 }[inputs.style] || .12;
+      const regimeReserve = { crash: .25, risk_off: .18, neutral: reserveByStyle, risk_on: reserveByStyle * .75 }[inputs.marketRegime] || reserveByStyle;
+      const targetLeveragedPct = {
+        conservative: levLimit * .55,
+        balanced: levLimit * .8,
+        aggressive: levLimit
+      }[inputs.style] || levLimit * .8;
+      const marketPenalty = { crash: .35, risk_off: .55, neutral: .85, risk_on: 1 }[inputs.marketRegime] || .85;
+      const allowedLeveragedValue = total * targetLeveragedPct * marketPenalty;
+      const excessLeveraged = Math.max(0, portfolio.leveraged - allowedLeveragedValue);
+      const shockLoss = portfolio.leveraged * .30;
+      const accountShockPct = total ? shockLoss / total : 0;
+      const cashNeeded = Math.max(0, total * regimeReserve - cash);
+      const canDeployCash = Math.max(0, cash - total * regimeReserve);
+      const strategyText = result.currentSignal === 'buy' ? '策略偏多' : result.currentSignal === 'sell' ? '策略偏空' : '策略观望';
+
+      let stateName = 'hold';
+      let title = '观望，不加仓';
+      let summary = '当前最重要的是维持现金和控制 3 倍 ETF 风险，等待更清晰的市场信号。';
+
+      if (inputs.marketRegime === 'crash' || levPct > levLimit * 1.25 || accountShockPct > maxSingleLoss * 1.8) {
+        stateName = 'reduce';
+        title = '优先减风险';
+        summary = '3 倍 ETF 或冲击损失已经超过你设定的风险预算，下一步应以降低波动为主。';
+      } else if (inputs.marketRegime === 'risk_on' && result.currentSignal === 'buy' && levPct <= targetLeveragedPct && canDeployCash > 0) {
+        stateName = 'allow';
+        title = '允许小仓分批';
+        summary = '市场和策略都偏多，但仍只适合用超额现金小比例试探，不适合一次性重仓。';
+      } else if (inputs.marketRegime === 'risk_off' || result.currentSignal === 'sell' || cashNeeded > 0) {
+        stateName = 'hold';
+        title = '停止加仓';
+        summary = '市场或现金状态不支持继续增加风险，先保留子弹，等待反弹或趋势确认。';
+      }
+
+      const addBudget = stateName === 'allow'
+        ? Math.min(canDeployCash * .25, total * .01, Math.max(0, allowedLeveragedValue - portfolio.leveraged))
+        : 0;
+
+      const reduceAmount = stateName === 'reduce'
+        ? Math.max(excessLeveraged, cashNeeded, accountShockPct > maxSingleLoss ? shockLoss - total * maxSingleLoss : 0)
+        : excessLeveraged;
+
+      const items = [];
+      if (stateName === 'reduce') {
+        items.push(`把 SOXL/TECL 这类 3 倍 ETF 合计至少降 ${fmtMoney(reduceAmount)} 左右；优先用反弹减仓，不用 SOXS 追反向。`);
+      } else if (stateName === 'allow') {
+        items.push(`最多只允许用 ${fmtMoney(addBudget)} 做分批试探；单笔不要超过总资产 1%，并预设止损。`);
+      } else {
+        items.push('今天的默认动作是观望：不补 SOXL，不追 SOXS，不扩大 3 倍 ETF 暴露。');
+      }
+      items.push(`现金底线设为 ${fmtMoney(total * regimeReserve)}；当前可下注现金约 ${fmtMoney(cash)}，${cashNeeded > 0 ? `还缺 ${fmtMoney(cashNeeded)}。` : `超出底线 ${fmtMoney(canDeployCash)}。`}`);
+      items.push(`如果 SOXL/TECL 再跌 30%，3 倍 ETF 部分约亏 ${fmtMoney(shockLoss)}，约占总资产 ${fmtPct(accountShockPct)}。`);
+      items.push(`目标 ${inputs.targetMonths} 个月收益 ${fmtPct(inputs.targetReturn)}，需要新增约 ${fmtMoney(Math.max(0, targetGap))}；不要为了目标收益突破风控上限。`);
+      items.push(`市场输入：${marketLabel(inputs.marketRegime)}；技术信号：${strategyText}。两者冲突时，以仓位和现金规则优先。`);
+      if (accountDrawdown < -inputs.maxAccountDrawdown * .7) {
+        items.push(`账户当前距历史高点回撤约 ${fmtPct(accountDrawdown)}，接近你的回撤容忍，暂时降低风险预算。`);
+      }
+
+      return {
+        stateName,
+        title,
+        summary,
+        items,
+        label: `现金 ${fmtPct(cashPct)} · 3倍ETF ${fmtPct(levPct)} · 科技/半导体 ${fmtPct(techPct)}`
+      };
+    }
+
+    function marketLabel(regime) {
+      return {
+        crash: '急跌/恐慌',
+        risk_off: '走弱/风险下降',
+        neutral: '震荡/方向不明',
+        risk_on: '强势/趋势向上'
+      }[regime] || '未知';
+    }
+
+    function renderDecision(result, risk) {
+      const decision = buildDecision(result, risk);
+      const call = $('decisionCall');
+      call.className = `decision-call ${decision.stateName}`;
+      call.innerHTML = `
+        <h3>${decision.title}</h3>
+        <p>${decision.summary}</p>
+        <p class="mono" style="margin-top:10px;">${decision.label}</p>
+      `;
+      $('decisionLabel').textContent = marketLabel($('marketRegime').value);
+      $('decisionItems').innerHTML = decision.items.map((item, index) => `
+        <div class="decision-item">
+          <span class="decision-rank">${index + 1}</span>
+          <div>${item}</div>
+        </div>
+      `).join('');
     }
 
     function renderSignal(result, risk) {
@@ -1834,7 +2063,7 @@
     });
 
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
       });
