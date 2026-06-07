@@ -189,7 +189,7 @@
 
     .metrics {
       display: grid;
-      grid-template-columns: repeat(5, minmax(145px, 1fr));
+      grid-template-columns: repeat(6, minmax(140px, 1fr));
       gap: 10px;
       margin: 20px 0 18px;
     }
@@ -527,6 +527,76 @@
       margin-bottom: 7px;
     }
 
+    .asset-board {
+      display: grid;
+      grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .asset-bars {
+      display: grid;
+      gap: 10px;
+    }
+
+    .asset-bar {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .asset-bar header {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 9px;
+      font-size: 13px;
+    }
+
+    .bar-track {
+      height: 9px;
+      border-radius: 999px;
+      background: #eef1f4;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      width: 0;
+      background: #145fb8;
+    }
+
+    .cash-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .cash-tile {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 12px;
+      background: #fff;
+      min-height: 82px;
+    }
+
+    .cash-tile span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .cash-tile strong {
+      display: block;
+      margin-top: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 19px;
+      white-space: nowrap;
+    }
+
     .import-status {
       margin-top: 9px;
       padding: 9px 10px;
@@ -548,6 +618,7 @@
       .cockpit { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .repair-grid { grid-template-columns: 1fr; }
       .scenario-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .asset-board { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 680px) {
@@ -559,6 +630,7 @@
       .cockpit,
       .scenario-list,
       .action-strip,
+      .cash-grid,
       .compact-form { grid-template-columns: 1fr; }
       .compact-form .wide { grid-column: auto; }
       .trade-table { font-size: 12px; }
@@ -592,6 +664,7 @@
         <p class="hint">支持楽天日文表头，也支持 Symbol, Quantity, AvgCost, CurrentPrice, MarketValue, Pnl。</p>
         <button class="btn secondary" id="loadHoldingSample">载入你的示例持仓</button>
         <button class="btn secondary" id="loadChromeCapture">加载 Chrome 抓取结果</button>
+        <button class="btn secondary" id="loadAccountSnapshot">加载完整账户快照</button>
         <div class="import-status" id="holdingStatus">未导入持仓</div>
       </div>
 
@@ -640,6 +713,11 @@
 
       <section class="metrics">
         <div class="metric">
+          <span>账户总资产</span>
+          <strong id="mAccountTotal">--</strong>
+          <small>来自楽天快照或手动总资金池</small>
+        </div>
+        <div class="metric">
           <span>策略收益</span>
           <strong id="mReturn">--</strong>
           <small>扣除手续费与滑点</small>
@@ -660,13 +738,42 @@
           <small>买入到卖出为一笔</small>
         </div>
         <div class="metric">
-          <span>建议仓位</span>
-          <strong id="mSize">--</strong>
-          <small>按总资金池与风险上限计算</small>
+          <span>可下注现金</span>
+          <strong id="mCash">--</strong>
+          <small>日元现金 + 美股可买约当</small>
         </div>
       </section>
 
       <div class="workspace">
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>楽天资产总览</h3>
+            <span class="mini" id="accountLabel">等待账户快照</span>
+          </div>
+          <div class="asset-board">
+            <div>
+              <div class="asset-bars" id="assetBars"></div>
+              <div class="cash-grid">
+                <div class="cash-tile">
+                  <span>买付可能额</span>
+                  <strong id="cashBuyingPower">--</strong>
+                </div>
+                <div class="cash-tile">
+                  <span>出金可能额</span>
+                  <strong id="cashWithdrawable">--</strong>
+                </div>
+                <div class="cash-tile">
+                  <span>美股可买金额</span>
+                  <strong id="cashUsdBuying">--</strong>
+                </div>
+              </div>
+            </div>
+            <div>
+              <canvas id="accountCurve" height="260"></canvas>
+            </div>
+          </div>
+        </section>
+
         <section class="band">
           <div class="band-head">
             <h3>价格与权益曲线</h3>
@@ -807,7 +914,8 @@
       data: [],
       result: null,
       view: 'trades',
-      holdings: []
+      holdings: [],
+      account: null
     };
 
     const $ = (id) => document.getElementById(id);
@@ -1006,6 +1114,34 @@
       ];
     }
 
+    function sampleAccount() {
+      return {
+        source: 'sample',
+        capturedAt: '示例数据',
+        totalAssetsJpy: 31289666,
+        cash: {
+          buyingPowerJpy: 2061417,
+          withdrawableJpy: 2061417,
+          usStockBuyingPowerUsd: 7350.07,
+          fx: 160.31
+        },
+        assets: [
+          { label: '米国株式', valueJpy: 10109116, pnlJpy: -3031245 },
+          { label: '投資信託', valueJpy: 17740844, pnlJpy: 1840844 },
+          { label: '預り金', valueJpy: 2261417, pnlJpy: 0 },
+          { label: 'マネーブリッジ', valueJpy: 1178289, pnlJpy: 0 }
+        ],
+        history: [
+          { date: '2026-05-27', valueJpy: 31840000 },
+          { date: '2026-05-29', valueJpy: 32320000 },
+          { date: '2026-06-02', valueJpy: 33480000 },
+          { date: '2026-06-04', valueJpy: 32480000 },
+          { date: '2026-06-07', valueJpy: 31289666 }
+        ],
+        holdings: sampleHoldings()
+      };
+    }
+
     function normalizeCapturedHoldings(items) {
       return items.map(item => {
         const symbol = String(item.symbol || '').toUpperCase();
@@ -1022,6 +1158,37 @@
           ...meta
         };
       }).filter(h => h.symbol && h.marketValueJpy > 0);
+    }
+
+    function normalizeAccount(payload) {
+      const account = payload || {};
+      const fx = Number(account.fx || account.cash?.fx || $('repairFx').value || 145);
+      const holdings = normalizeCapturedHoldings(account.holdings || []);
+      const assets = (account.assets || []).map(asset => ({
+        label: asset.label || asset.name || '未分类',
+        valueJpy: Number(asset.valueJpy || asset.marketValueJpy || 0),
+        pnlJpy: Number(asset.pnlJpy || asset.pnl || 0)
+      })).filter(asset => asset.valueJpy > 0);
+      const totalAssetsJpy = Number(account.totalAssetsJpy || account.summary?.totalAssetsJpy || assets.reduce((sum, asset) => sum + asset.valueJpy, 0));
+      const cash = {
+        buyingPowerJpy: Number(account.cash?.buyingPowerJpy || account.buyingPowerJpy || 0),
+        withdrawableJpy: Number(account.cash?.withdrawableJpy || account.withdrawableJpy || 0),
+        usStockBuyingPowerUsd: Number(account.cash?.usStockBuyingPowerUsd || account.usStockBuyingPowerUsd || 0),
+        fx
+      };
+      const history = (account.history || []).map(point => ({
+        date: point.date || point.capturedAt || '',
+        valueJpy: Number(point.valueJpy || point.value || 0)
+      })).filter(point => point.date && point.valueJpy > 0);
+      return {
+        source: account.source || 'rakuten',
+        capturedAt: account.capturedAt || '--',
+        totalAssetsJpy,
+        cash,
+        assets,
+        history,
+        holdings
+      };
     }
 
     function sma(values, period, i) {
@@ -1196,22 +1363,85 @@
       syncHoldingInputs();
       const r = state.result;
       const risk = calcRisk();
+      const account = accountSummary();
       $('dataStatus').textContent = `${state.data.length} 行数据已加载`;
       $('rangeLabel').textContent = `${state.data[0].date} 至 ${state.data[state.data.length - 1].date}`;
+      $('mAccountTotal').textContent = account.totalAssetsJpy ? fmtMoney(account.totalAssetsJpy) : fmtMoney(Number($('totalWealth').value));
       $('mReturn').textContent = fmtPct(r.totalReturn);
       $('mReturn').className = r.totalReturn >= 0 ? 'positive' : 'negative';
       $('mDrawdown').textContent = fmtPct(r.maxDrawdown);
       $('mDrawdown').className = 'negative';
       $('mWinRate').textContent = fmtPct(r.winRate);
       $('mTrades').textContent = String(r.trades.length);
-      $('mSize').textContent = fmtMoney(risk.suggested);
+      $('mCash').textContent = account.cashBuyingPower ? fmtMoney(account.cashBuyingPower) : fmtMoney(risk.suggested);
 
+      renderAccount();
       renderSignal(r, risk);
       renderRules(risk);
       renderPortfolio();
       renderRepair();
       renderTable();
       drawChart();
+    }
+
+    function accountSummary() {
+      const account = state.account;
+      if (!account) {
+        return {
+          totalAssetsJpy: Number($('totalWealth').value),
+          cashBuyingPower: 0,
+          withdrawableJpy: 0,
+          usStockBuyingPowerUsd: 0,
+          fx: Number($('repairFx').value) || 145
+        };
+      }
+      const cashBuyingPower = account.cash.buyingPowerJpy + (account.cash.usStockBuyingPowerUsd * account.cash.fx);
+      return {
+        totalAssetsJpy: account.totalAssetsJpy,
+        cashBuyingPower,
+        withdrawableJpy: account.cash.withdrawableJpy,
+        usStockBuyingPowerUsd: account.cash.usStockBuyingPowerUsd,
+        fx: account.cash.fx
+      };
+    }
+
+    function renderAccount() {
+      const account = state.account;
+      const bars = $('assetBars');
+      if (!account) {
+        $('accountLabel').textContent = '等待账户快照';
+        $('cashBuyingPower').textContent = '--';
+        $('cashWithdrawable').textContent = '--';
+        $('cashUsdBuying').textContent = '--';
+        bars.innerHTML = '<div class="notice">加载完整账户快照后显示楽天不同板块仓位、现金余力和资产曲线。</div>';
+        drawAccountCurve([]);
+        return;
+      }
+
+      $('accountLabel').textContent = `${account.capturedAt} · ${account.source}`;
+      $('cashBuyingPower').textContent = fmtMoney(account.cash.buyingPowerJpy);
+      $('cashWithdrawable').textContent = fmtMoney(account.cash.withdrawableJpy);
+      $('cashUsdBuying').textContent = fmtMoney(account.cash.usStockBuyingPowerUsd, 'USD');
+      $('totalWealth').value = Math.round(account.totalAssetsJpy || Number($('totalWealth').value));
+      if (account.cash.fx) $('repairFx').value = account.cash.fx;
+
+      const total = account.totalAssetsJpy || account.assets.reduce((sum, asset) => sum + asset.valueJpy, 0);
+      const colors = ['#145fb8', '#0b7a42', '#a95d00', '#69707d', '#c9252d', '#202124'];
+      bars.innerHTML = account.assets.length ? account.assets.map((asset, index) => {
+        const pct = total ? asset.valueJpy / total : 0;
+        return `
+          <div class="asset-bar">
+            <header>
+              <strong>${asset.label}</strong>
+              <span class="mono">${fmtPct(pct)} · ${fmtMoney(asset.valueJpy)}</span>
+            </header>
+            <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, pct * 100).toFixed(2)}%;background:${colors[index % colors.length]}"></div></div>
+            <p class="${asset.pnlJpy >= 0 ? 'positive' : 'negative'} mono" style="margin-top:8px;font-size:12px;">評価損益 ${fmtMoney(asset.pnlJpy)}</p>
+          </div>
+        `;
+      }).join('') : '<div class="notice">账户快照里没有资产板块数据。</div>';
+
+      drawAccountCurve(account.history || []);
     }
 
     function renderSignal(result, risk) {
@@ -1478,6 +1708,63 @@
       ctx.fillText(state.data[n - 1].date, w - pad.r - 82, h - 12);
     }
 
+    function drawAccountCurve(points) {
+      const canvas = $('accountCurve');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(480, Math.floor(rect.width || 700));
+      const h = 260;
+      canvas.width = Math.floor(w * devicePixelRatio);
+      canvas.height = Math.floor(h * devicePixelRatio);
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = '#f5f6f7';
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = { l: 54, r: 24, t: 24, b: 34 };
+      ctx.strokeStyle = '#d7dbe2';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const yy = pad.t + i * (h - pad.t - pad.b) / 4;
+        ctx.beginPath();
+        ctx.moveTo(pad.l, yy);
+        ctx.lineTo(w - pad.r, yy);
+        ctx.stroke();
+      }
+
+      if (!points.length) {
+        ctx.fillStyle = '#69707d';
+        ctx.font = '15px Georgia';
+        ctx.fillText('等待资产历史曲线', 24, 45);
+        return;
+      }
+
+      const values = points.map(p => p.valueJpy);
+      const min = Math.min(...values);
+      const max = Math.max(...values);
+      const x = i => pad.l + (i / Math.max(1, points.length - 1)) * (w - pad.l - pad.r);
+      const y = v => pad.t + (1 - ((v - min) / Math.max(1, max - min))) * (h - pad.t - pad.b);
+
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const xx = x(index);
+        const yy = y(point.valueJpy);
+        if (index === 0) ctx.moveTo(xx, yy);
+        else ctx.lineTo(xx, yy);
+      });
+      ctx.strokeStyle = '#202124';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = '#202124';
+      ctx.font = '12px ui-monospace, Menlo, monospace';
+      ctx.fillText(fmtMoney(values[values.length - 1]), pad.l, 18);
+      ctx.fillStyle = '#69707d';
+      ctx.fillText(points[0].date, pad.l, h - 11);
+      ctx.fillText(points[points.length - 1].date, w - pad.r - 86, h - 11);
+    }
+
     function run() {
       try {
         state.result = backtest();
@@ -1493,7 +1780,8 @@
     });
 
     $('loadHoldingSample').addEventListener('click', () => {
-      state.holdings = sampleHoldings();
+      state.account = normalizeAccount(sampleAccount());
+      state.holdings = state.account.holdings;
       $('holdingStatus').textContent = `${state.holdings.length} 个示例持仓已导入`;
       run();
     });
@@ -1503,9 +1791,33 @@
         const response = await fetch('rakuten-holdings.json', { cache: 'no-store' });
         if (!response.ok) throw new Error('没有找到 Chrome 抓取结果。请先让 Codex 抓取楽天持仓。');
         const payload = await response.json();
-        state.holdings = normalizeCapturedHoldings(payload.holdings || []);
+        state.account = normalizeAccount({
+          source: payload.source || 'rakuten-sec-chrome',
+          capturedAt: payload.capturedAt,
+          fx: payload.fx,
+          totalAssetsJpy: payload.summary?.marketValueJpy,
+          assets: [{ label: '米国株式', valueJpy: payload.summary?.marketValueJpy || 0, pnlJpy: payload.summary?.pnlJpy || 0 }],
+          holdings: payload.holdings || []
+        });
+        state.holdings = state.account.holdings;
         if (payload.fx) $('repairFx').value = payload.fx;
         $('holdingStatus').textContent = `${state.holdings.length} 个 Chrome 抓取持仓已导入，更新时间 ${payload.capturedAt || '--'}`;
+        run();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+
+    $('loadAccountSnapshot').addEventListener('click', async () => {
+      try {
+        const response = await fetch('rakuten-account.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error('没有找到完整账户快照。请先让 Codex 从楽天只读抓取一次。');
+        const payload = await response.json();
+        state.account = normalizeAccount(payload);
+        state.holdings = state.account.holdings;
+        if (state.account.totalAssetsJpy) $('totalWealth').value = Math.round(state.account.totalAssetsJpy);
+        if (state.account.cash.fx) $('repairFx').value = state.account.cash.fx;
+        $('holdingStatus').textContent = `${state.holdings.length} 个持仓 + ${state.account.assets.length} 个资产板块已导入，更新时间 ${state.account.capturedAt}`;
         run();
       } catch (err) {
         alert(err.message);
@@ -1556,6 +1868,7 @@
     window.addEventListener('resize', () => {
       if (state.result) drawChart();
       else drawEmpty();
+      renderAccount();
     });
 
     state.data = generateSample();
