@@ -829,6 +829,41 @@
       margin: 0;
     }
 
+    .evidence-ledger {
+      margin-top: 10px;
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .evidence-row {
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr) 78px;
+      gap: 8px;
+      padding: 8px 9px;
+      border-bottom: 1px solid #eef1f4;
+      color: var(--muted);
+      font-size: 12px;
+      align-items: center;
+    }
+
+    .evidence-row:last-child {
+      border-bottom: 0;
+    }
+
+    .evidence-row b {
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .evidence-row span:nth-child(2) {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .control-grid {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -2066,7 +2101,20 @@
                   <input id="evidenceBear" type="number" value="0" min="0" max="10" step="1">
                 </label>
               </div>
+              <label>证据来源账本
+                <textarea id="evidenceSources" placeholder="每行一条：客户订单 | 来源URL或摘要 | 日期 | 对 thesis 的影响"></textarea>
+              </label>
+              <label>证据最后更新日
+                <input id="evidenceUpdatedAt" type="date">
+              </label>
+              <label>反方证据 / 风险笔记
+                <textarea id="evidenceRiskNotes" placeholder="写下最强反方观点：如果它成立，为什么这笔研究票不能买。"></textarea>
+              </label>
+              <div class="execution-actions">
+                <button class="mini-btn secondary" id="saveSerenityEvidence">保存证据账本</button>
+              </div>
               <div class="deep-output" id="serenityOrderTicket"></div>
+              <div class="evidence-ledger" id="serenityEvidenceLedger"></div>
             </div>
           </div>
         </section>
@@ -2427,6 +2475,7 @@
       executionLog: [],
       reviewLog: [],
       quotes: {},
+      serenityEvidence: null,
       selectedDeRiskScenario: '系统'
     };
 
@@ -3241,6 +3290,57 @@
       }
     }
 
+    function loadSerenityEvidence() {
+      try {
+        return JSON.parse(localStorage.getItem('quantGuardSerenityEvidence') || 'null');
+      } catch (err) {
+        return null;
+      }
+    }
+
+    function saveSerenityEvidence() {
+      const payload = {
+        savedAt: new Date().toISOString(),
+        symbol: $('candidateSymbol').value.trim().toUpperCase(),
+        sources: $('evidenceSources').value.trim(),
+        updatedAt: $('evidenceUpdatedAt').value,
+        riskNotes: $('evidenceRiskNotes').value.trim(),
+        scores: {
+          customer: Number($('evidenceCustomer').value) || 0,
+          order: Number($('evidenceOrder').value) || 0,
+          financial: Number($('evidenceFinancial').value) || 0,
+          chokepoint: Number($('evidenceChokepoint').value) || 0,
+          valuation: Number($('evidenceValuation').value) || 0,
+          bear: Number($('evidenceBear').value) || 0
+        }
+      };
+      state.serenityEvidence = payload;
+      try {
+        localStorage.setItem('quantGuardSerenityEvidence', JSON.stringify(payload));
+      } catch (err) {
+        console.warn('无法保存 Serenity 证据账本', err);
+      }
+      renderDeepModules(state.lastDecision);
+    }
+
+    function applySerenityEvidence(evidence) {
+      if (!evidence) return;
+      $('evidenceSources').value = evidence.sources || '';
+      $('evidenceUpdatedAt').value = evidence.updatedAt || '';
+      $('evidenceRiskNotes').value = evidence.riskNotes || '';
+      const scores = evidence.scores || {};
+      [
+        ['evidenceCustomer', scores.customer],
+        ['evidenceOrder', scores.order],
+        ['evidenceFinancial', scores.financial],
+        ['evidenceChokepoint', scores.chokepoint],
+        ['evidenceValuation', scores.valuation],
+        ['evidenceBear', scores.bear]
+      ].forEach(([id, value]) => {
+        if (Number.isFinite(Number(value))) $(id).value = value;
+      });
+    }
+
     function watchedSymbols() {
       return ['SOXL', 'TECL', 'MRVL', 'QQQ', 'SMH', 'SOXX', 'NVDA', 'USDJPY'];
     }
@@ -3696,6 +3796,16 @@
       const thesis = $('serenityThesis').value.trim();
       const invalidation = $('serenityInvalidation').value.trim();
       const catalyst = $('serenityCatalyst').value.trim();
+      const sourceLines = $('evidenceSources').value
+        .split('\n')
+        .map(line => line.trim())
+        .filter(Boolean);
+      const updatedAt = $('evidenceUpdatedAt').value;
+      const riskNotes = $('evidenceRiskNotes').value.trim();
+      const updatedDays = updatedAt
+        ? Math.floor((Date.now() - new Date(`${updatedAt}T00:00:00`).getTime()) / 86400000)
+        : Infinity;
+      const sourceReady = sourceLines.length >= 3 && updatedDays <= 21 && riskNotes.length >= 20;
       const evidence = {
         customer: clamp(Number($('evidenceCustomer').value) || 0, 0, 10),
         order: clamp(Number($('evidenceOrder').value) || 0, 0, 10),
@@ -3708,7 +3818,7 @@
       const hardEvidenceReady = evidence.customer >= 5 && evidence.order >= 5 && evidence.financial >= 5 && evidence.chokepoint >= 5;
       const evidenceReady = evidenceTotal >= 42 && hardEvidenceReady;
       const thesisReady = thesis.length >= 30 && invalidation.length >= 20 && catalyst.length >= 8 && triggerPrice > 0;
-      const stage = score >= 85 && thesisReady && evidenceReady
+      const stage = score >= 85 && thesisReady && evidenceReady && sourceReady
         ? '订单票候选'
         : score >= 70 || evidenceTotal >= 30
           ? '观察清单/小仓试错前'
@@ -3718,19 +3828,25 @@
         evidence.order < 5 ? '订单证据' : '',
         evidence.financial < 5 ? '财报证据' : '',
         evidence.chokepoint < 5 ? '瓶颈证据' : '',
-        evidenceTotal < 42 ? '总证据分 42/60' : ''
+        evidenceTotal < 42 ? '总证据分 42/60' : '',
+        sourceLines.length < 3 ? '至少 3 条来源' : '',
+        updatedDays > 21 ? '21 天内更新' : '',
+        riskNotes.length < 20 ? '反方风险笔记' : ''
       ].filter(Boolean).join('、');
       const evidenceNeed = missingEvidence
         ? `先补：${missingEvidence}`
         : score < 70
-        ? '先补客户、订单、财报三类硬证据'
+        ? '主观评分未到 70，先补瓶颈、稀缺性和财报验证'
         : score < 85
           ? '补估值错位和证伪条件，再考虑试错'
           : '等待触发价和风控闸门同时满足';
-      const allowed = score >= 85 && thesisReady && evidenceReady && decision?.stateName !== 'reduce' && maxResearchValue > 0;
+      const allowed = score >= 85 && thesisReady && evidenceReady && sourceReady && decision?.stateName !== 'reduce' && maxResearchValue > 0;
       $('serenityOrderTicket').innerHTML = [
         line('候选评分', `${score}/100 · ${researchPermission(score)}`, score >= 85 ? 'positive' : score >= 70 ? '' : 'negative'),
         line('证据分', `${evidenceTotal}/60`, evidenceReady ? 'positive' : 'negative'),
+        line('来源账本', `${sourceLines.length} 条`, sourceLines.length >= 3 ? 'positive' : 'negative'),
+        line('证据新鲜度', Number.isFinite(updatedDays) ? `${Math.max(0, updatedDays)} 天前` : '未记录', updatedDays <= 21 ? 'positive' : 'negative'),
+        line('反方笔记', riskNotes.length >= 20 ? '已记录' : '不足', riskNotes.length >= 20 ? 'positive' : 'negative'),
         line('硬证据', hardEvidenceReady ? '客户/订单/财报/瓶颈均过线' : '核心证据未过线', hardEvidenceReady ? 'positive' : 'negative'),
         line('研究阶段', stage, stage === '订单票候选' ? 'positive' : stage === '研究不足' ? 'negative' : ''),
         line('thesis 完整度', thesisReady ? '完整' : '不完整', thesisReady ? 'positive' : 'negative'),
@@ -3740,6 +3856,21 @@
         line('下一证据要求', evidenceNeed),
         line('硬性禁止', '低于 42/60 不能进订单票，不能用 SOXL/TECL 替代个股研究')
       ].join('');
+      $('serenityEvidenceLedger').innerHTML = sourceLines.length
+        ? sourceLines.slice(0, 6).map((source, index) => `
+          <div class="evidence-row">
+            <b>证据 ${index + 1}</b>
+            <span title="${escapeHtml(source)}">${escapeHtml(source)}</span>
+            <span>${source.includes('http') ? '链接' : '笔记'}</span>
+          </div>
+        `).join('')
+        : `
+          <div class="evidence-row">
+            <b>空账本</b>
+            <span>至少记录客户、订单、财报/瓶颈三类来源。</span>
+            <span>未过</span>
+          </div>
+        `;
     }
 
     function selectDeRiskScenario(key) {
@@ -4917,6 +5048,8 @@
     state.executionLog = loadExecutionLog();
     state.reviewLog = loadReviewLog();
     state.quotes = loadQuotes();
+    state.serenityEvidence = loadSerenityEvidence();
+    applySerenityEvidence(state.serenityEvidence);
 
     $('loadSample').addEventListener('click', () => {
       state.data = generateSample();
@@ -4985,12 +5118,13 @@
     $('exportReviewLog').addEventListener('click', exportReviewLog);
     $('refreshQuotes').addEventListener('click', refreshQuotes);
     $('saveManualQuotes').addEventListener('click', saveManualQuotes);
+    $('saveSerenityEvidence').addEventListener('click', saveSerenityEvidence);
     $('deRiskScenarios').addEventListener('click', (event) => {
       const key = event.target?.dataset?.deriskScenario;
       if (key) selectDeRiskScenario(key);
     });
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'actualSoxlShares', 'actualSoxlPrice', 'actualTeclShares', 'actualTeclPrice', 'taxRatePct', 'fxCostPct', 'settlementDays', 'todayLossJpy', 'lossStreak', 'cooldownLossPct', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear', 'executionTrigger', 'executionCancel', 'maxSlippagePct'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'actualSoxlShares', 'actualSoxlPrice', 'actualTeclShares', 'actualTeclPrice', 'taxRatePct', 'fxCostPct', 'settlementDays', 'todayLossJpy', 'lossStreak', 'cooldownLossPct', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear', 'evidenceSources', 'evidenceUpdatedAt', 'evidenceRiskNotes', 'executionTrigger', 'executionCancel', 'maxSlippagePct'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
         else if (state.lastDecision) {
@@ -5001,7 +5135,7 @@
       });
     });
 
-    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear'].forEach(id => {
+    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice', 'evidenceCustomer', 'evidenceOrder', 'evidenceFinancial', 'evidenceChokepoint', 'evidenceValuation', 'evidenceBear', 'evidenceSources', 'evidenceRiskNotes'].forEach(id => {
       $(id).addEventListener('input', () => {
         renderCandidateScore();
         if (state.lastDecision) renderDeepModules(state.lastDecision);
