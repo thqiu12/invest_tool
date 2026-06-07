@@ -748,6 +748,76 @@
       grid-column: 1 / -1;
     }
 
+    .deep-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(240px, 1fr));
+      gap: 12px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    .deep-card {
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .deep-card h4 {
+      margin: 0 0 8px;
+      font-size: 14px;
+    }
+
+    .deep-card p,
+    .deep-card li {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .deep-card label {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .deep-card input,
+    .deep-card textarea {
+      color: var(--ink);
+      background: #fff;
+      border-color: var(--line);
+      margin-top: 5px;
+      padding: 8px 9px;
+    }
+
+    .deep-card textarea {
+      min-height: 72px;
+      resize: vertical;
+    }
+
+    .deep-output {
+      margin-top: 10px;
+      border: 1px solid #eaedf1;
+      border-radius: 7px;
+      background: #f8f9fa;
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+    }
+
+    .deep-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .deep-line b {
+      color: var(--ink);
+      text-align: right;
+    }
+
     .control-grid {
       display: grid;
       grid-template-columns: minmax(280px, .9fr) minmax(0, 1.1fr);
@@ -1883,6 +1953,89 @@
                 <h4>策略优先级</h4>
                 <ul id="priorityList"></ul>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="band full-row">
+          <div class="band-head">
+            <h3>阶段 13-18 / 执行与投研深化</h3>
+            <span class="mini" id="deepLabel">成交校准 · 税费汇率 · 目标仓位 · 情绪风控 · 复盘统计</span>
+          </div>
+          <div class="deep-grid">
+            <div class="deep-card">
+              <h4>成交后校准</h4>
+              <label>SOXL 实卖股数
+                <input id="actualSoxlShares" type="number" value="0" min="0" step="1">
+              </label>
+              <label>SOXL 成交价 USD
+                <input id="actualSoxlPrice" type="number" value="0" min="0" step="0.01">
+              </label>
+              <label>TECL 实卖股数
+                <input id="actualTeclShares" type="number" value="0" min="0" step="1">
+              </label>
+              <label>TECL 成交价 USD
+                <input id="actualTeclPrice" type="number" value="0" min="0" step="0.01">
+              </label>
+              <div class="deep-output" id="executionCalibration"></div>
+            </div>
+
+            <div class="deep-card">
+              <h4>税费和汇率层</h4>
+              <label>税率预估
+                <input id="taxRatePct" type="number" value="20.315" min="0" max="60" step="0.1">
+              </label>
+              <label>换汇/滑点成本
+                <input id="fxCostPct" type="number" value="0.20" min="0" max="5" step="0.05">
+              </label>
+              <label>结算延迟天数
+                <input id="settlementDays" type="number" value="2" min="0" max="10" step="1">
+              </label>
+              <div class="deep-output" id="taxFxModel"></div>
+            </div>
+
+            <div class="deep-card">
+              <h4>目标收益反推仓位</h4>
+              <div class="deep-output" id="targetSizing"></div>
+            </div>
+
+            <div class="deep-card">
+              <h4>情绪风控</h4>
+              <label>今日已亏损（日元）
+                <input id="todayLossJpy" type="number" value="0" min="0" step="10000">
+              </label>
+              <label>连续亏损次数
+                <input id="lossStreak" type="number" value="0" min="0" step="1">
+              </label>
+              <label>冷静期阈值
+                <input id="cooldownLossPct" type="number" value="2" min="0.5" max="20" step="0.5">
+              </label>
+              <div class="deep-output" id="emotionGuard"></div>
+            </div>
+
+            <div class="deep-card">
+              <h4>复盘统计</h4>
+              <div class="deep-output" id="reviewStats"></div>
+            </div>
+
+            <div class="deep-card">
+              <h4>Serenity 研究仓订单票</h4>
+              <label>买入 thesis
+                <textarea id="serenityThesis">MRVL 是否是 AI 互联/定制芯片供应链瓶颈，需要用财报、客户和订单验证。</textarea>
+              </label>
+              <label>证伪条件
+                <textarea id="serenityInvalidation">财报不支持、客户证据消失、毛利/订单恶化、跌破预设风控线。</textarea>
+              </label>
+              <label>催化剂
+                <input id="serenityCatalyst" type="text" value="财报、客户订单、AI 互联需求验证">
+              </label>
+              <label>目标研究仓占总资产
+                <input id="serenityTargetPct" type="number" value="0.5" min="0.1" max="5" step="0.1">
+              </label>
+              <label>观察触发价 USD
+                <input id="serenityTriggerPrice" type="number" value="0" min="0" step="0.01">
+              </label>
+              <div class="deep-output" id="serenityOrderTicket"></div>
             </div>
           </div>
         </section>
@@ -3422,6 +3575,114 @@
       `;
     }
 
+    function line(label, value, cls = '') {
+      return `<div class="deep-line"><span>${escapeHtml(label)}</span><b class="${cls}">${escapeHtml(value)}</b></div>`;
+    }
+
+    function renderDeepModules(decision = state.lastDecision) {
+      const account = accountSummary();
+      const portfolio = portfolioSummary();
+      const total = account.totalAssetsJpy || portfolio.total || Number($('totalWealth').value);
+      const fx = account.fx || Number($('repairFx').value) || 145;
+      const reserve = decision?.plan?.reserveJpy || total * .12;
+      const calibration = [
+        { symbol: 'SOXL', shares: Number($('actualSoxlShares').value), price: Number($('actualSoxlPrice').value) },
+        { symbol: 'TECL', shares: Number($('actualTeclShares').value), price: Number($('actualTeclPrice').value) }
+      ];
+      const actualSellJpy = calibration.reduce((sum, item) => sum + Math.max(0, item.shares) * Math.max(0, item.price) * fx, 0);
+      const impact = buildDeRiskImpact(decision);
+      const actualAfterLev = Math.max(0, portfolio.leveraged - actualSellJpy);
+      const actualShock = total ? (actualAfterLev * .30) / total : 0;
+      $('executionCalibration').innerHTML = [
+        line('实际释放现金', fmtMoney(actualSellJpy), actualSellJpy > 0 ? 'positive' : ''),
+        line('预估释放现金', fmtMoney(impact.sellValue)),
+        line('执行偏差', fmtMoney(actualSellJpy - impact.sellValue), actualSellJpy >= impact.sellValue ? 'positive' : 'negative'),
+        line('实际30%冲击', fmtPct(actualShock), actualShock <= impact.afterShock ? 'positive' : 'negative')
+      ].join('');
+
+      const taxRate = Number($('taxRatePct').value) / 100;
+      const fxCost = Number($('fxCostPct').value) / 100;
+      const settlementDays = Number($('settlementDays').value);
+      const taxableGain = Math.max(0, portfolio.pnl);
+      const estimatedTax = taxableGain * taxRate;
+      const estimatedFxCost = Math.max(impact.sellValue, actualSellJpy) * fxCost;
+      $('taxFxModel').innerHTML = [
+        line('估算税额上限', fmtMoney(estimatedTax), estimatedTax > 0 ? 'negative' : ''),
+        line('换汇/滑点成本', fmtMoney(estimatedFxCost), estimatedFxCost > 0 ? 'negative' : ''),
+        line('税费后新增现金', fmtMoney(Math.max(0, Math.max(impact.sellValue, actualSellJpy) - estimatedTax - estimatedFxCost))),
+        line('结算提醒', `${settlementDays} 天后再校准现金`)
+      ].join('');
+
+      const targetReturn = Number($('targetReturnPct').value) / 100;
+      const targetMonths = Math.max(1, Number($('targetMonths').value));
+      const maxDrawdown = Number($('maxAccountDrawdownPct').value) / 100;
+      const annualNeed = total * targetReturn * (12 / targetMonths);
+      const riskBudget = total * maxDrawdown;
+      const maxTradingBucket = Math.min(total * Number($('leveragedPct').value) / 100, riskBudget / .30);
+      const stableNeed = Math.max(0, annualNeed - maxTradingBucket * .25);
+      $('targetSizing').innerHTML = [
+        line('目标年化收益额', fmtMoney(annualNeed)),
+        line('最大回撤预算', fmtMoney(riskBudget)),
+        line('高风险桶上限', fmtMoney(maxTradingBucket), portfolio.leveraged > maxTradingBucket ? 'negative' : 'positive'),
+        line('应由稳健/成长桶承担', fmtMoney(stableNeed))
+      ].join('');
+
+      const todayLoss = Number($('todayLossJpy').value);
+      const lossStreak = Number($('lossStreak').value);
+      const cooldownPct = Number($('cooldownLossPct').value) / 100;
+      const cooldownHit = total ? todayLoss / total >= cooldownPct : false;
+      const streakHit = lossStreak >= 3;
+      $('emotionGuard').innerHTML = [
+        line('今日亏损占比', fmtPct(total ? todayLoss / total : 0), cooldownHit ? 'negative' : ''),
+        line('连续亏损', `${lossStreak} 次`, streakHit ? 'negative' : ''),
+        line('买入权限', cooldownHit || streakHit ? '关闭' : '按闸门判断', cooldownHit || streakHit ? 'negative' : 'positive'),
+        line('额外规则', '亏损日不买 SOXS，不盘前追单')
+      ].join('');
+
+      const history = state.reviewLog || [];
+      const avgScore = history.length ? history.reduce((sum, item) => sum + Number(item.score || 0), 0) / history.length : 0;
+      const badDays = history.filter(item => Number(item.score || 0) < 65).length;
+      const violationSum = history.reduce((sum, item) => sum + Number(item.invalidBuyJpy || 0), 0);
+      const emotionSum = history.reduce((sum, item) => sum + Number(item.emotionTrades || 0), 0);
+      $('reviewStats').innerHTML = [
+        line('保存复盘次数', `${history.length} 次`),
+        line('平均纪律分', history.length ? avgScore.toFixed(1) : '--', avgScore >= 75 ? 'positive' : 'negative'),
+        line('失控天数', `${badDays} 天`, badDays ? 'negative' : 'positive'),
+        line('违规买入累计', fmtMoney(violationSum), violationSum ? 'negative' : 'positive'),
+        line('情绪交易累计', `${emotionSum} 次`, emotionSum ? 'negative' : 'positive')
+      ].join('');
+
+      const score = manualResearchScore();
+      const targetPct = Number($('serenityTargetPct').value) / 100;
+      const maxResearchValue = Math.min(total * targetPct, buildSerenityLens(decision).singleTicket || 0);
+      const triggerPrice = Number($('serenityTriggerPrice').value);
+      const thesis = $('serenityThesis').value.trim();
+      const invalidation = $('serenityInvalidation').value.trim();
+      const catalyst = $('serenityCatalyst').value.trim();
+      const thesisReady = thesis.length >= 30 && invalidation.length >= 20 && catalyst.length >= 8 && triggerPrice > 0;
+      const stage = score >= 85 && thesisReady
+        ? '订单票候选'
+        : score >= 70
+          ? '观察清单/小仓试错前'
+          : '研究不足';
+      const evidenceNeed = score < 70
+        ? '先补客户、订单、财报三类硬证据'
+        : score < 85
+          ? '补估值错位和证伪条件，再考虑试错'
+          : '等待触发价和风控闸门同时满足';
+      const allowed = score >= 85 && thesisReady && decision?.stateName !== 'reduce' && maxResearchValue > 0;
+      $('serenityOrderTicket').innerHTML = [
+        line('候选评分', `${score}/100 · ${researchPermission(score)}`, score >= 85 ? 'positive' : score >= 70 ? '' : 'negative'),
+        line('研究阶段', stage, stage === '订单票候选' ? 'positive' : stage === '研究不足' ? 'negative' : ''),
+        line('thesis 完整度', thesisReady ? '完整' : '不完整', thesisReady ? 'positive' : 'negative'),
+        line('订单票权限', allowed ? '允许小仓研究票' : '禁止真实买入', allowed ? 'positive' : 'negative'),
+        line('研究仓上限', fmtMoney(maxResearchValue)),
+        line('观察触发价', triggerPrice > 0 ? fmtUsd(triggerPrice) : '未设置'),
+        line('下一证据要求', evidenceNeed),
+        line('硬性禁止', '不能用 SOXL/TECL 替代个股研究')
+      ].join('');
+    }
+
     function selectDeRiskScenario(key) {
       state.selectedDeRiskScenario = key;
       render();
@@ -4172,6 +4433,7 @@
       renderActionGates(decision);
       renderNextActions(decision);
       renderDeRiskImpact(decision);
+      renderDeepModules(decision);
     }
 
     function addExecutionTickets() {
@@ -4657,18 +4919,22 @@
       if (key) selectDeRiskScenario(key);
     });
     $('run').addEventListener('click', run);
-    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
+    ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'actualSoxlShares', 'actualSoxlPrice', 'actualTeclShares', 'actualTeclPrice', 'taxRatePct', 'fxCostPct', 'settlementDays', 'todayLossJpy', 'lossStreak', 'cooldownLossPct', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice'].forEach(id => {
       $(id).addEventListener('change', () => {
         if (state.data.length) run();
         else if (state.lastDecision) {
           renderExecution();
           renderReview();
+          renderDeepModules(state.lastDecision);
         }
       });
     });
 
-    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
-      $(id).addEventListener('input', renderCandidateScore);
+    ['candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity', 'serenityThesis', 'serenityInvalidation', 'serenityCatalyst', 'serenityTargetPct', 'serenityTriggerPrice'].forEach(id => {
+      $(id).addEventListener('input', () => {
+        renderCandidateScore();
+        if (state.lastDecision) renderDeepModules(state.lastDecision);
+      });
     });
 
     $('csvFile').addEventListener('change', async (event) => {
