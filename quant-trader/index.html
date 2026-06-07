@@ -1035,11 +1035,16 @@
       background: #fff;
       padding: 10px 11px;
       display: grid;
-      grid-template-columns: 60px minmax(140px, 1.35fr) repeat(3, minmax(0, 1fr));
+      grid-template-columns: 60px minmax(140px, 1.35fr) repeat(3, minmax(0, 1fr)) auto;
       gap: 10px;
       align-items: center;
       font-size: 12px;
       color: var(--muted);
+    }
+
+    .scenario-row.selected {
+      border-color: rgba(20, 95, 184, .45);
+      background: #f4f8ff;
     }
 
     .scenario-row.header {
@@ -1056,6 +1061,23 @@
     .scenario-row .orders {
       color: var(--ink);
       line-height: 1.4;
+    }
+
+    .scenario-row button {
+      border: 1px solid #d6dce3;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 6px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .scenario-row.selected button {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
     }
 
     .quote-board {
@@ -2214,7 +2236,8 @@
       lastDecision: null,
       executionLog: [],
       reviewLog: [],
-      quotes: {}
+      quotes: {},
+      selectedDeRiskScenario: '系统'
     };
 
     const $ = (id) => document.getElementById(id);
@@ -3349,6 +3372,7 @@
         }).filter(order => order.shares > 0);
         return {
           name,
+          key: name,
           sellValue,
           afterCash: cash + sellValue,
           afterLevPct: total ? afterLeveraged / total : 0,
@@ -3383,17 +3407,24 @@
           <span>释放现金</span>
           <span>卖后占比</span>
           <span>30%冲击</span>
+          <span>操作</span>
         </div>
         ${scenarios.map(item => `
-          <div class="scenario-row">
+          <div class="scenario-row ${item.key === state.selectedDeRiskScenario ? 'selected' : ''}">
             <b>${item.name}</b>
             <span class="orders">${item.orders.length ? item.orders.map(order => `${order.symbol} ${Number(order.shares).toLocaleString()}股`).join(' / ') : '不卖'}</span>
             <span>${fmtMoney(item.sellValue)}</span>
             <span>${fmtPct(item.afterLevPct)}</span>
             <span>${fmtPct(item.afterShock)}</span>
+            <button type="button" data-derisk-scenario="${item.key}">${item.key === state.selectedDeRiskScenario ? '已采用' : '采用'}</button>
           </div>
         `).join('')}
       `;
+    }
+
+    function selectDeRiskScenario(key) {
+      state.selectedDeRiskScenario = key;
+      render();
     }
 
     function makeExecutionTickets(decision, { preview = false } = {}) {
@@ -3408,6 +3439,7 @@
       const soxl = portfolio.holdings.find(h => h.symbol === 'SOXL');
       const tecl = portfolio.holdings.find(h => h.symbol === 'TECL');
       const gates = buildActionGates(decision);
+      const selectedScenario = buildDeRiskScenarios(decision).find(item => item.key === state.selectedDeRiskScenario);
       const base = {
         id: preview ? 'preview' : `QG-${Date.now()}`,
         createdAt,
@@ -3443,12 +3475,22 @@
 
       const tickets = [];
       if (decision.stateName === 'reduce') {
-        if (plan.soxlSellShares > 0) {
-          tickets.push(ticket('sell', 'SOXL', plan.soxlSellShares, plan.trigger.reboundTrim, '反弹减风险，优先降低 3 倍半导体 ETF 暴露。', 1));
-        }
-        if (plan.teclSellShares > 0) {
-          tickets.push(ticket('sell', 'TECL', plan.teclSellShares, 0, 'SOXL 减完仍超出风险预算时，再降低科技 3 倍 ETF 暴露。', 2));
-        }
+        const scenarioOrders = selectedScenario?.orders?.length
+          ? selectedScenario.orders
+          : [
+              { symbol: 'SOXL', shares: plan.soxlSellShares },
+              { symbol: 'TECL', shares: plan.teclSellShares }
+            ].filter(order => order.shares > 0);
+        scenarioOrders.forEach((order, index) => {
+          tickets.push(ticket(
+            'sell',
+            order.symbol,
+            order.shares,
+            order.symbol === 'SOXL' ? plan.trigger.reboundTrim : 0,
+            `${state.selectedDeRiskScenario} 减仓方案：降低 3 倍 ETF 暴露，先让账户回到风险预算内。`,
+            index + 1
+          ));
+        });
       } else if (decision.stateName === 'allow' && gates.buyOpen && plan.addSoxlShares > 0) {
         tickets.push(ticket('buy', 'SOXL', plan.addSoxlShares, plan.trigger.reentry, '市场与策略同时偏多时，用超额现金小仓试探。', 1));
       } else if (decision.stateName === 'allow' && !gates.buyOpen) {
@@ -4610,6 +4652,10 @@
     $('exportReviewLog').addEventListener('click', exportReviewLog);
     $('refreshQuotes').addEventListener('click', refreshQuotes);
     $('saveManualQuotes').addEventListener('click', saveManualQuotes);
+    $('deRiskScenarios').addEventListener('click', (event) => {
+      const key = event.target?.dataset?.deriskScenario;
+      if (key) selectDeRiskScenario(key);
+    });
     $('run').addEventListener('click', run);
     ['strategy', 'fast', 'slow', 'fee', 'capital', 'totalWealth', 'positionPct', 'leveragedPct', 'maxLossPct', 'targetReturnPct', 'targetMonths', 'maxAccountDrawdownPct', 'marketRegime', 'decisionStyle', 'executionMode', 'orderType', 'currentExposure', 'leverage', 'repairShares', 'repairCost', 'repairPrice', 'repairFx', 'repairTarget', 'candidateSymbol', 'scoreBottleneck', 'scoreScarcity', 'scoreFinancials', 'scoreCustomers', 'scoreValuation', 'scoreLiquidity'].forEach(id => {
       $(id).addEventListener('change', () => {
